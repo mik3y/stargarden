@@ -1,12 +1,12 @@
-# Stargaden
+# Stargarden
 
-Stargarden is a python program that runs the sound and lighting program for "Stargarden", an art installation.
+Stargarden is a Python program that runs the sound and lighting program for "Stargarden", an art installation.
 
 Stargarden is a secluded spot in a nighttime forest, featuring a comfy platform for lying down, looking up at the stars, and taking in the atmosphere.
 
-As a visitor approaches Stargarden, they see trees encircling the platform which are uplighted with various multi-color DMX fixtures, slowly and even subtly changing against a coherent color theme. Ambient background forest sounds play on sound system in the background, which encircles the space. Occasionally, a discrete sound (like a bird flapping or calling) is also played over the ambient selection, this sound taking advantage of the quad-channel sound output to make it appear to come from a specific space, or move around the space.
+As a visitor approaches Stargarden, they see trees encircling the platform which are uplighted with various multi-color DMX fixtures, slowly and even subtly changing against a coherent color theme. Ambient background forest sounds play on a sound system in the background, which encircles the space. Occasionally, a discrete sound (like a bird flapping or calling) is also played over the ambient selection, this sound taking advantage of the quad-channel sound output to make it appear to come from a specific space, or move around the space.
 
-Unbeknownst to the visitor, upon their arrival, a bluetooth motion sensor has fired and determined that the space is occupied. After a set amount of time (e.g. 10 minutes), something happens: The lights fade off briefly, and a new sound takes over: a musical track from a privately curated playlist of chill, beautiful runes. The lighting program gets slightly more active and matches the music.
+Unbeknownst to the visitor, upon their arrival, a bluetooth motion sensor has fired and determined that the space is occupied. After a set amount of time (e.g. 10 minutes), something happens: The lights fade off briefly, and a new sound takes over: a musical track from a privately curated playlist of chill, beautiful tunes. The lighting program gets slightly more active and matches the music.
 
 As the track ends, the "normal" program returns. So long as presence is detected in the space, the program repeats after another delay, with a new track.
 
@@ -15,24 +15,114 @@ As the track ends, the "normal" program returns. So long as presence is detected
 ### States
 
 The program, and the art itself, has the following major states:
-* `OFF`: All lighting and sound disabled.
-* `AMBIENT`: Ambient forest sounds and lighting; the default mode of operation.
-* `PRESENCE`: Ambient programming continues, but triggers the musical program after a timeout, looping back to this state so long as there is presence. The state transitions back to `AMBIENT` after the program determines the space has definitively been vacated.
+
+* `OFF`: All lighting and sound disabled. The daytime state.
+* `AMBIENT`: Ambient forest sounds and lighting; the default nighttime mode of operation.
+* `PRESENCE`: The space is occupied. Ambient programming continues, and a countdown to the next show begins.
+* `SHOW`: The music program. Lights fade off briefly, then a track from the curated playlist plays with a more active, music-matched lighting theme. On track end, the program returns to `PRESENCE` (restarting the countdown) or `AMBIENT` if the space has been vacated.
+
+Transitions:
+
+* `OFF ↔ AMBIENT`: driven by the sunset/sunrise scheduler, or manually from the console.
+* `AMBIENT → PRESENCE`: presence detector reports occupied.
+* `PRESENCE → SHOW`: occupancy has persisted for `show_delay` (default 10 minutes; subsequent shows use `show_repeat_delay`).
+* `PRESENCE → AMBIENT`: presence detector reports the space definitively vacated.
+* Any state can be forced manually from the console; a manual state pins until released.
+
+### Architecture decisions
+
+* **Single asyncio process.** One Python process hosts all components; the TUI is just another component and can be disabled (`--headless`) when running under systemd. Audio rendering runs in the PortAudio callback thread; everything else is async tasks.
+* **Lighting is pure Python.** No external lighting desk. The looks we need — slow generative color drift, theme palettes, music-mode intensity, occasional lightning — are simple math over a handful of fixtures, and keeping them in-process keeps lighting locked to program state and audio events. We define our own small fixture profiles.
+* **DMX out via Enttec DMX USB Pro** (or compatible). The adapter's onboard engine handles DMX frame timing; we send universe snapshots over serial (`pyserial`) at ~30 Hz. The driver is behind a small interface so other adapters (or sACN) can be added later.
+* **Audio via `sounddevice` (PortAudio) with our own mixer.** A numpy mixing engine renders N layers → per-layer gain → 4-speaker panning, at 48 kHz float32. Quad mode maps FL/FR/RL/RR to outputs 1–4 of a class-compliant USB interface; stereo mode (developer MacBooks) folds the rear channels down with attenuation so spatial effects remain audible.
+* **Presence via `bleak` passive BLE scanning.** Two Shelly Blu Motion sensors (platform + walkway) broadcasting **unencrypted** BTHome v2 advertisements; no pairing, no bindkeys. Encryption support can be added later if needed.
+* **TUI via Textual.** Logs, state display/override, per-layer volume, and (in dev) simulated fixtures and motion injection.
+* **Scheduling via `astral`.** Sunset/sunrise computed from configured lat/long drives `OFF ↔ AMBIENT`.
+* **Config is TOML** (`stdlib tomllib`): a program config plus an assets manifest.
+* **Fully offline in the field.** No network dependency at runtime. Deploys happen by visiting the Pi (rsync over direct link/hotspot). Because the sunset schedule depends on wall-clock time, the production Pi should carry an RTC module (e.g. DS3231); `fake-hwclock` alone drifts across power-offs.
 
 ## Major Components
 
-* **Audio player.** This component is responsible for driving audio output. The program can be operating in stereo mode, or 4-channel "quadraphonic" mode, depending on the computer it is running on. The player has to mix/multiplex among a variety of streams (background ambience; occasional discrete sounds; music program), and is coordinated with lighting.
-* **Lighting player.** This component drives a discrete set of DMX fixtures with pre-set colors, moods, patterns, themes. By default, it will run with a handful of RGB/RGBW wash lights attached. It may also be installed with one or more optional strobe-capable lights, supporting overlaying an occasional "lightning" effect, as called for by the program's lighting design.
-* **Presence detection.** One or more BLE sensors (Shelly Blu Motion) will be connected and will provide simple motion detection events. This component aggregates these signals and implements latching and dampening; for example, presence being fired at the platform means someone is definitely there now, but their still motion could mean there is still someone present even if the sensor hasn't fired recently. At least one sensor is positioned on the walkway leading to the space, which could be incorporated in hueristics which determine overall logical presence/absence.
-* **TUI console.** A console program makes it easy to see recent log messages, manually change state, and manually adjust the relative volume of each audio playback layer. (The overall peak volume will be set and managed by an external amplifier.)
+### Conductor
 
-## Requirements
+The state machine described above. Owns timers (`show_delay`, `show_repeat_delay`), consumes presence and scheduler events, and issues coordinated commands to the audio and lighting engines (e.g. "fade lights out, then start track X with theme Y").
 
-* Written in Python.
-* Can run on a developer device (MacBook) or the field-deployed "production" device (likely a Raspberry Pi running Raspberry Pi OS).
-* In stereo mode, quadraphonic effects are simulated over 2 channels, e.g. so a developer can test their effectiveness.
+### Audio engine
 
-## Open Questions
+Drives a single PortAudio output stream and mixes three layers:
 
-* How do we design the lighting program(s)? Do we use a third-party lighting desk program, or do we write all of the logic in Python (against fixture profiles we will need to source or design)?
-* Do specific music tracks get associated with specific alternative lighting programs, or do we simply have a small playlist (possibly just 1) from which a lighting program is randomly chosen?
+* **Bed**: looping ambient forest recordings. Beds are ordinary stereo files; the engine spreads them across the quad field (decorrelated front/rear with slow drift). Bed changes crossfade.
+* **Discretes**: mono one-shot sounds (bird calls, wing flaps) fired on a randomized schedule, each given a position or a motion trajectory and rendered with equal-power panning across the four speakers. Preloaded into memory.
+* **Music**: the show track. While music plays, the bed ducks to a configured low level (the forest never fully disappears) and discretes are suppressed; both return when the track ends.
+
+Files are decoded with `soundfile` (WAV/FLAC/OGG/MP3). Beds and music are streamed from disk by a decode thread feeding ring buffers, so the audio callback never touches the filesystem. Per-layer gain is adjustable live from the console; overall peak volume is managed by the external amplifier.
+
+### Lighting engine
+
+A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift within a palette, per-fixture phase offsets so the trees don't move in unison) with optional **overlays** (lightning strobe, show-mode intensity), then writes the universe to the DMX driver.
+
+* **Fixture profiles** (channel maps for RGB/RGBW wash, dimmer, strobe) and the **patch** (fixture → DMX address) are declared in config.
+* **Themes** are small Python classes registered by name; ambient themes are weighted-random selected and rotate slowly, show themes are selected per the music manifest.
+* **Lightning** is an overlay available only when strobe-capable fixtures are patched and the active theme allows it; rare, with a configured minimum interval.
+* Drivers: `enttec_pro` (real hardware), `console` (virtual fixture swatches in the TUI), `null`.
+
+### Presence detection
+
+A passive BLE scanner parses BTHome v2 advertisements from the two Shelly Blu Motion sensors and feeds a latching occupancy model:
+
+* Motion at the **platform** sensor ⇒ occupied immediately.
+* Occupancy is held while *any* sensor reports motion within `vacancy_timeout` (default 15 minutes) — a still, stargazing visitor won't retrigger PIR constantly, so absence of events is not evidence of absence until the timeout lapses.
+* The **walkway** sensor refreshes the hold and marks likely arrival; available to future heuristics (e.g. pre-warming, distinguishing pass-throughs).
+
+Sensor MAC addresses are configured; sensors must have BLE encryption disabled in the Shelly app.
+
+### Scheduler
+
+Computes today's dusk/dawn from configured coordinates and requests `OFF ↔ AMBIENT` transitions, with configurable offsets (e.g. lights from 20 min after sunset until 30 min before sunrise). Manual console overrides always win.
+
+### TUI console
+
+A Textual app showing recent log lines, current state and timers, presence sensor status, and per-layer volume sliders. Allows forcing/releasing states. In simulation mode it additionally renders virtual fixture color swatches and offers keys to inject platform/walkway motion events.
+
+## Hardware
+
+Production target:
+
+* Raspberry Pi (Raspberry Pi OS), with RTC module for offline timekeeping
+* Enttec DMX USB Pro (or compatible)
+* Class-compliant USB audio interface with ≥4 outputs, into external amplification (4 speakers encircling the space)
+* RGB/RGBW DMX wash fixtures; optionally one or more strobe-capable fixtures
+* 2× Shelly Blu Motion (platform, walkway), unencrypted BTHome broadcasts
+
+Development target: macOS laptop, no hardware — stereo audio out, simulated fixtures and sensors.
+
+## Configuration & assets
+
+`config.toml` holds machine/site specifics: audio device and channel mode, DMX driver and serial port, fixture patch, sensor MACs, lat/long and schedule offsets, timers, duck levels.
+
+Audio assets live **outside the repo** in a configurable assets directory (deployed via rsync; the repo carries only tiny test sounds for development):
+
+```
+assets/
+  manifest.toml     # beds, discrete pools (weights, spatial behavior), music playlist
+  beds/             # stereo ambience loops
+  discretes/        # mono one-shots
+  music/            # curated show tracks
+```
+
+Each music playlist entry may name a specific show lighting theme; otherwise one is chosen at random from the show-theme pool.
+
+## Development
+
+```
+uv sync
+uv run stargarden --config configs/dev.toml
+```
+
+The dev config selects stereo output, the `console` DMX driver, and simulated presence (TUI keybindings in place of BLE). Python ≥ 3.14, managed with `uv`.
+
+## Open questions
+
+* Exact USB audio interface model for the Pi (any class-compliant 4-out should do; to be validated).
+* Theme design itself — palettes, drift behavior, show looks — will be iterated with the fixtures in hand.
+* Whether the walkway sensor should trigger any audible/visible "greeting" on approach.
