@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..config import LightingConfig
-from .color import mix
+from .color import RGB, mix
 from .drivers import DmxDriver
 from .fixtures import FixtureState, Patch
 from .themes import Theme
@@ -96,18 +96,28 @@ class LightingEngine:
         count = len(self.patch.fixtures)
         states = []
         for i, fixture in enumerate(self.patch.fixtures):
-            rgb = self.theme.color(i, count, t)
-            intensity = self.theme.intensity(i, count, t)
-            if self._prev_theme is not None and blend < 1.0:
-                rgb = mix(self._prev_theme.color(i, count, t), rgb, blend)
-                prev_i = self._prev_theme.intensity(i, count, t)
-                intensity = prev_i + (intensity - prev_i) * blend
-            state = FixtureState(rgb=rgb, intensity=intensity * master)
             if flashing and fixture.has_strobe:
-                state = FixtureState(rgb=LIGHTNING_COLOR, intensity=1.0, strobe=1.0)
-            states.append(state)
+                states.append(FixtureState(rgb=LIGHTNING_COLOR, intensity=1.0, strobe=1.0))
+                continue
+            n = fixture.profile.rgb_zones
+            zones = tuple(self._color(i + fixture.profile.zone_x(z), count, t, blend) for z in range(n)) if n > 1 else ()
+            rgb = zones[n // 2] if zones else self._color(i, count, t, blend)
+            states.append(FixtureState(rgb=rgb, intensity=self._intensity(i, count, t, blend) * master, zones=zones))
         self.last_states = states
         return states
+
+    def _color(self, index: float, count: int, t: float, blend: float) -> RGB:
+        rgb = self.theme.color(index, count, t)
+        if self._prev_theme is not None and blend < 1.0:
+            return mix(self._prev_theme.color(index, count, t), rgb, blend)
+        return rgb
+
+    def _intensity(self, index: float, count: int, t: float, blend: float) -> float:
+        value = self.theme.intensity(index, count, t)
+        if self._prev_theme is not None and blend < 1.0:
+            prev = self._prev_theme.intensity(index, count, t)
+            return prev + (value - prev) * blend
+        return value
 
     def _schedule_lightning(self, now: float) -> float:
         cfg = self.cfg.lightning

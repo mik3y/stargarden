@@ -40,6 +40,12 @@ profile = "dim_rgbw"
 address = 1
 position = [-0.8, 0.8]
 
+[[lighting.fixtures]]
+name = "sky"
+profile = "jolt_bar_fx2_9ch"  # ADJ Jolt Bar FX2, set to 9CH mode on its menu
+address = 11
+position = [0.0, 1.0]
+
 [presence]
 source = "ble"
 vacancy_timeout_s = 900

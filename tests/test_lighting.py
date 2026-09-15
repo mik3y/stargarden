@@ -2,10 +2,10 @@ import random
 
 import pytest
 
-from stargarden.config import ConfigError, FixtureConfig, LightingConfig, LightningConfig
+from stargarden.config import ConfigError, FixtureConfig, LightingConfig, LightningConfig, ProfileConfig
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
-from stargarden.lighting.fixtures import FixtureState, Patch
+from stargarden.lighting.fixtures import BUILTIN_PROFILES, FixtureState, Patch
 from stargarden.lighting.themes import AMBIENT_THEMES, SHOW_THEMES, get_theme
 
 
@@ -40,8 +40,47 @@ def test_patch_rejects_overlap_and_range() -> None:
         Patch.from_config(make_cfg(FixtureConfig("a", "laser", 1)))
 
 
+def test_jolt_bar_fx2_profiles() -> None:
+    patch = Patch.from_config(make_cfg(FixtureConfig("bar", "jolt_bar_fx2_9ch", 1), FixtureConfig("bar6", "jolt_bar_fx2_6ch", 10)))
+    assert patch.has_strobe
+    idle = patch.render([FixtureState(rgb=(0.2, 0.2, 1.0), intensity=0.5), FixtureState(rgb=(1.0, 1.0, 1.0), intensity=1.0)])
+    # rgb → outer RGB + inner white, 16-bit dimmer, strobe effect open
+    assert idle[0:4] == bytes([0, 0, 204, 51])
+    assert (idle[4] << 8 | idle[5]) == round(0.5 * 65535)
+    assert idle[6:9] == bytes([0, 0, 0])
+    assert idle[9:15] == bytes([0, 0, 0, 255, 255, 255])
+    flashing = patch.render([FixtureState(rgb=(1.0, 1.0, 1.0), intensity=1.0, strobe=1.0), FixtureState()])
+    assert flashing[6:9] == bytes([4, 255, 255])  # plain strobe, fastest rate/duration
+
+
+def test_jolt_bar_fx2_all_modes_have_matching_footprints() -> None:
+    modes = {name: p for name, p in BUILTIN_PROFILES.items() if name.startswith("jolt_bar_fx2_")}
+    assert len(modes) == 17
+    for name, profile in modes.items():
+        assert profile.footprint == int(name.rsplit("_", 1)[1].removesuffix("ch"))
+        assert profile.zone_rows == 2
+
+
+def test_jolt_bar_fx2_zoned_modes() -> None:
+    patch = Patch.from_config(make_cfg(FixtureConfig("bar", "jolt_bar_fx2_16ch", 1), FixtureConfig("bar18", "jolt_bar_fx2_18ch", 20)))
+    zones = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.5, 0.5, 0.5))
+    frame = patch.render([FixtureState(rgb=zones[0], intensity=0.5, zones=zones), FixtureState()])
+    # 16CH: no dimmer, so intensity folds into the four RGB zones...
+    assert frame[0:12] == bytes([128, 0, 0, 0, 128, 0, 0, 0, 128, 0, 0, 0])
+    assert frame[12:16] == bytes([0, 0, 0, 0])
+    # ...and the four whites follow the top-row zones above them (zones 1 and 2)
+    frame = patch.render([FixtureState(rgb=zones[3], intensity=1.0, zones=(zones[3], zones[0], zones[1], zones[2])), FixtureState()])
+    assert frame[12:16] == bytes([128, 128, 0, 0])
+    # 18CH: 16-bit outer dimmer at intensity, inner dimmer carries the white component
+    frame = patch.render([FixtureState(), FixtureState(rgb=(0.4, 0.4, 1.0), intensity=0.5)])
+    assert frame[19:22] == bytes([0, 0, 153])  # rgb minus white
+    assert (frame[23] << 8 | frame[24]) == round(0.5 * 65535)
+    assert (frame[30] << 8 | frame[31]) == round(0.4 * 0.5 * 65535)
+    assert frame[25:28] == bytes([0, 0, 0]) and frame[32:35] == bytes([0, 0, 0])  # both strobes open
+
+
 def test_custom_profile() -> None:
-    cfg = make_cfg(FixtureConfig("a", "par", 1), profiles={"par": ("red", "green", "blue", "dimmer")})
+    cfg = make_cfg(FixtureConfig("a", "par", 1), profiles={"par": ProfileConfig(("red", "green", "blue", "dimmer"))})
     patch = Patch.from_config(cfg)
     assert patch.render([FixtureState(rgb=(1, 1, 1), intensity=1)])[:4] == bytes([255, 255, 255, 255])
 
@@ -87,3 +126,18 @@ def test_engine_fades_and_lightning(clock) -> None:
     assert states[1].strobe == 1.0 and states[0].strobe == 0.0
     clock.advance(5)
     assert engine.frame(clock())[1].strobe == 0.0
+
+
+def test_engine_renders_zoned_bar_as_two_row_gradient(clock) -> None:
+    cfg = make_cfg(FixtureConfig("a", "dim_rgbw", 1), FixtureConfig("bar", "jolt_bar_fx2_112ch", 10))
+    patch = Patch.from_config(cfg)
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("aurora"), random.Random(1), clock=clock)
+    engine.fade_master(1.0, 0.0)
+    clock.advance(1)
+    bar = engine.frame(clock())[1]
+    assert len(bar.zones) == 32
+    assert bar.zones[:16] == bar.zones[16:]  # bottom row mirrors the top row
+    steps = [max(abs(a - b) for a, b in zip(bar.zones[z], bar.zones[z + 1], strict=True)) for z in range(15)]
+    assert max(steps) < 0.15 and sum(steps) > 0.05  # a smooth, non-flat gradient along the bar
+    assert bar.rgb == bar.zones[16]
+    assert sum(patch.render([FixtureState(), bar])[9:105]) > 0  # the bar's 96 RGB channels are lit

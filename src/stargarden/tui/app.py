@@ -16,6 +16,7 @@ from ..conductor import State
 from ..config import SensorRole
 
 LEVEL_STEP = 0.05
+SWATCH_WIDTH = 16
 LEVEL_STYLES = {"DEBUG": "dim", "INFO": "", "WARNING": "yellow", "ERROR": "bold red", "CRITICAL": "bold red"}
 
 
@@ -131,10 +132,12 @@ class StargardenApp(App):
     def refresh_fixtures(self) -> None:
         text = Text()
         for fixture, state in zip(self.program.patch.fixtures, self.program.lighting.last_states, strict=True):
-            k = state.intensity
-            r, g, b = (int(round(255 * min(1.0, ch * k))) for ch in state.rgb)
-            block = "▓▓▓▓" if state.strobe else "████"
-            text.append(block, style=f"rgb({r},{g},{b})")
+            zones = state.zones[: fixture.profile.zones_per_row] or (state.rgb,) * 4
+            glyph = "▓" if state.strobe else "█"
+            for z in range(min(len(zones), SWATCH_WIDTH)):
+                color = zones[z * len(zones) // min(len(zones), SWATCH_WIDTH)]
+                r, g, b = (int(round(255 * min(1.0, ch * state.intensity))) for ch in color)
+                text.append(glyph, style=f"rgb({r},{g},{b})")
             text.append(f" {fixture.name}\n")
         self.query_one("#fixtures", Static).update(text)
 

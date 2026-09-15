@@ -57,7 +57,7 @@ position = [0.8, -0.8]
 
 [[lighting.fixtures]]
 name = "sky"
-profile = "rgb_strobe"
+profile = "jolt_bar_fx2_9ch"  # ADJ Jolt Bar FX2 in 9CH mode
 address = 21
 position = [0.0, 1.0]
 

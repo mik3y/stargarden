@@ -91,7 +91,7 @@ Production target:
 * Raspberry Pi (Raspberry Pi OS), with RTC module for offline timekeeping
 * Enttec DMX USB Pro (or compatible)
 * Class-compliant USB audio interface with ≥4 outputs, into external amplification (4 speakers encircling the space)
-* RGB/RGBW DMX wash fixtures; optionally one or more strobe-capable fixtures
+* RGB/RGBW DMX wash fixtures; optionally one or more strobe-capable fixtures. The ADJ Jolt Bar FX2 has built-in profiles for all 17 of its DMX modes (`jolt_bar_fx2_<n>ch`); zoned modes render as a gradient across the bar. Reference material for it lives in `docs/fixtures/`.
 * 2× Shelly Blu Motion (platform, walkway), unencrypted BTHome broadcasts
 
 Development target: macOS laptop, no hardware — stereo audio out, simulated fixtures and sensors.
@@ -158,6 +158,10 @@ configs/          dev.toml (simulation) and production.toml (Pi template)
 scripts/          make_test_assets.py
 tests/            pytest; `test_app.py` runs a whole simulated visit
 ```
+
+Fixture profiles are tuples of channel roles (`red`, `dimmer`, `strobe_effect`,
+zoned `red:3` / `white:7`, ...) declared in `lighting/fixtures.py` or under
+`[lighting.profiles.<name>]` in config; unknown roles render as 0.
 
 Pure logic (state machine, occupancy, panning, themes, patch rendering) takes an
 injected clock and is unit-tested; hardware adapters (`sounddevice`, `bleak`,

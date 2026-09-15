@@ -91,12 +91,18 @@ class LightningConfig:
 
 
 @dataclass(frozen=True)
+class ProfileConfig:
+    channels: tuple[str, ...]
+    zone_rows: int = 1
+
+
+@dataclass(frozen=True)
 class LightingConfig:
     driver: str = "console"  # console | null | enttec_pro
     port: str = "/dev/ttyUSB0"
     fps: float = 30.0
     fixtures: tuple[FixtureConfig, ...] = ()
-    profiles: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    profiles: dict[str, ProfileConfig] = field(default_factory=dict)
     lightning: LightningConfig = field(default_factory=LightningConfig)
 
 
@@ -184,7 +190,7 @@ def load_config(path: Path) -> Config:
 
     lighting_raw = dict(raw.get("lighting", {}))
     fixtures = _table_list(FixtureConfig, lighting_raw.pop("fixtures", []), "lighting.fixtures")
-    profiles = {name: tuple(spec.get("channels", ())) for name, spec in lighting_raw.pop("profiles", {}).items()}
+    profiles = {name: _fill(ProfileConfig, spec, f"lighting.profiles.{name}") for name, spec in lighting_raw.pop("profiles", {}).items()}
     lightning = _fill(LightningConfig, lighting_raw.pop("lightning", {}), "lighting.lightning")
     lighting = replace(_fill(LightingConfig, lighting_raw, "lighting"), fixtures=fixtures, profiles=profiles, lightning=lightning)
 

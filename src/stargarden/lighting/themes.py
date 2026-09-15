@@ -13,13 +13,17 @@ from .color import RGB, sample_palette
 
 
 class Theme:
+    """`index` is the fixture's position in the patch; zoned fixtures ask for
+    fractional indices (fixture 2, zone 5 of 16 → 2.3125) so a bar shows a
+    gradient of what its neighbors would show."""
+
     name: str
     lightning_ok: bool
 
-    def color(self, index: int, count: int, t: float) -> RGB:
+    def color(self, index: float, count: int, t: float) -> RGB:
         raise NotImplementedError
 
-    def intensity(self, index: int, count: int, t: float) -> float:
+    def intensity(self, index: float, count: int, t: float) -> float:
         return 1.0
 
 
@@ -34,10 +38,10 @@ class DriftTheme(Theme):
     breathe_depth: float = 0.15
     lightning_ok: bool = False
 
-    def color(self, index: int, count: int, t: float) -> RGB:
+    def color(self, index: float, count: int, t: float) -> RGB:
         return sample_palette(self.palette, t / self.period_s + index * self.spread)
 
-    def intensity(self, index: int, count: int, t: float) -> float:
+    def intensity(self, index: float, count: int, t: float) -> float:
         phase = t / self.breathe_period_s + index * 0.37
         breathe = 0.5 + 0.5 * math.sin(2 * math.pi * phase)
         return self.brightness * (1.0 - self.breathe_depth * breathe)
