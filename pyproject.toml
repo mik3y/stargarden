@@ -1,17 +1,42 @@
 [project]
 name = "stargarden"
 version = "0.1.0"
-description = "Add your description here"
+description = "Sound and lighting program for the Stargarden art installation"
 readme = "README.md"
 authors = [
     { name = "mike wakerly", email = "opensource@hoho.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "astral>=3.2",
+    "bleak>=1.0",
+    "numpy>=2.2",
+    "pyserial>=3.5",
+    "sounddevice>=0.5",
+    "soundfile>=0.13",
+    "textual>=1.0",
+]
 
 [project.scripts]
 stargarden = "stargarden:main"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 140
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]

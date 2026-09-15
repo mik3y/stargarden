@@ -1,0 +1,58 @@
+# Field config for the Raspberry Pi. Fill in coordinates, sensor addresses,
+# and the DMX patch for the installed fixtures.
+
+[site]
+name = "Stargarden"
+latitude = 0.0
+longitude = 0.0
+timezone = "America/Los_Angeles"
+
+[schedule]
+enabled = true
+sunset_offset_min = 20
+sunrise_offset_min = -30
+
+[timers]
+show_delay_s = 600
+show_repeat_delay_s = 900
+lights_out_s = 4
+
+[audio]
+backend = "sounddevice"
+device = ""  # substring of the interface name, or blank for the system default
+mode = "quad"
+samplerate = 48000
+blocksize = 1024
+
+[audio.levels]
+bed = 0.8
+discretes = 0.7
+music = 0.9
+
+[lighting]
+driver = "enttec_pro"
+port = "/dev/ttyUSB0"
+fps = 30
+
+[[lighting.fixtures]]
+name = "tree-1"
+profile = "dim_rgbw"
+address = 1
+position = [-0.8, 0.8]
+
+[presence]
+source = "ble"
+vacancy_timeout_s = 900
+
+[[presence.sensors]]
+role = "platform"
+name = "platform"
+address = "AA:BB:CC:DD:EE:01"
+
+[[presence.sensors]]
+role = "walkway"
+name = "walkway"
+address = "AA:BB:CC:DD:EE:02"
+
+[assets]
+root = "/home/pi/stargarden-assets"

@@ -115,11 +115,62 @@ Each music playlist entry may name a specific show lighting theme; otherwise one
 ## Development
 
 ```
-uv sync
-uv run stargarden --config configs/dev.toml
+uv sync                                   # Python 3.14 + deps into .venv
+uv run python scripts/make_test_assets.py # synthesize stand-in sounds into assets-dev/
+uv run stargarden                         # console UI with configs/dev.toml
+uv run stargarden --headless              # logs to stderr instead of the console
+uv run pytest
 ```
 
-The dev config selects stereo output, the `console` DMX driver, and simulated presence (TUI keybindings in place of BLE). Python ≥ 3.14, managed with `uv`.
+The dev config selects stereo output (falling back to a silent clock if PortAudio
+is missing), the `console` DMX driver, simulated presence, and a schedule
+override so it is always "night". Console keys:
+
+| key | action |
+|---|---|
+| `m` / `w` | fake platform / walkway motion |
+| `0` `1` `2` `3` | force OFF / AMBIENT / PRESENCE / SHOW |
+| `r` | release the forced state |
+| `n` | toggle day/night override |
+| `l` / `s` | fire a lightning flash / a discrete sound |
+| `tab`, `[`, `]` | select a layer, nudge its level |
+| `q` | quit |
+
+Show timers are seconds in `configs/dev.toml` (`show_delay_s = 45`), so a full
+visit can be watched in a couple of minutes: press `m`, wait, and the lights
+drop out before a track starts.
+
+### Code layout
+
+```
+src/stargarden/
+  __init__.py     CLI entry point (`stargarden`)
+  app.py          runtime wiring: transitions → audio/lighting commands
+  conductor.py    the OFF/AMBIENT/PRESENCE/SHOW state machine
+  config.py       config.toml → dataclasses
+  manifest.py     assets/manifest.toml → beds, discretes, music
+  scheduler.py    sunset/sunrise via astral
+  presence/       occupancy model, BTHome parser, bleak scanner
+  lighting/       fixtures & patch, themes, render engine, DMX drivers
+  audio/          decoders, quad panner, streaming sources, mixer, backends, engine
+  tui/            Textual console
+configs/          dev.toml (simulation) and production.toml (Pi template)
+scripts/          make_test_assets.py
+tests/            pytest; `test_app.py` runs a whole simulated visit
+```
+
+Pure logic (state machine, occupancy, panning, themes, patch rendering) takes an
+injected clock and is unit-tested; hardware adapters (`sounddevice`, `bleak`,
+`pyserial`) are imported lazily so a machine without them still runs in
+simulation.
+
+## Deployment
+
+On the Pi: `uv sync`, copy `configs/production.toml` to the site config and fill
+in coordinates, sensor MACs, the DMX patch, and the audio device; rsync the
+assets directory to `assets.root`; run `stargarden --config <site>.toml
+--headless` from a systemd unit (`Restart=always`). Fit an RTC module so the
+sunset schedule survives power cycles offline.
 
 ## Open questions
 

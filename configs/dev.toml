@@ -1,0 +1,69 @@
+# Developer config: no hardware, stereo output, sensors faked from the console.
+
+[site]
+name = "Stargarden (dev)"
+latitude = 37.7749
+longitude = -122.4194
+timezone = "America/Los_Angeles"
+
+[schedule]
+enabled = false  # always "night"; toggle day/night with `n` in the console
+
+[timers]
+show_delay_s = 45
+show_repeat_delay_s = 60
+lights_out_s = 3
+ambient_theme_rotation_s = 180
+
+[audio]
+backend = "auto"
+mode = "stereo"
+
+[discretes]
+min_interval_s = 8
+max_interval_s = 25
+
+[lighting]
+driver = "console"
+fps = 30
+
+[lighting.lightning]
+mean_interval_s = 90
+min_interval_s = 30
+
+[[lighting.fixtures]]
+name = "tree-nw"
+profile = "dim_rgbw"
+address = 1
+position = [-0.8, 0.8]
+
+[[lighting.fixtures]]
+name = "tree-ne"
+profile = "dim_rgbw"
+address = 6
+position = [0.8, 0.8]
+
+[[lighting.fixtures]]
+name = "tree-sw"
+profile = "dim_rgbw"
+address = 11
+position = [-0.8, -0.8]
+
+[[lighting.fixtures]]
+name = "tree-se"
+profile = "dim_rgbw"
+address = 16
+position = [0.8, -0.8]
+
+[[lighting.fixtures]]
+name = "sky"
+profile = "rgb_strobe"
+address = 21
+position = [0.0, 1.0]
+
+[presence]
+source = "simulated"
+vacancy_timeout_s = 120
+
+[assets]
+root = "../assets-dev"
