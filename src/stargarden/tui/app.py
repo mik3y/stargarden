@@ -97,6 +97,13 @@ class LogPane(RichLog):
             self.write(format_record(record))
 
 
+def swatch_rgb(color: tuple[float, float, float], intensity: float, peak: float) -> tuple[int, int, int]:
+    """Terminal color for a cell, previewed as if the peak were 1.0: a softened rig
+    still shows its look in the console rather than a row of black squares."""
+    level = min(1.0, intensity / peak if peak > 0 else intensity)  # an overlay's absolute level must not overshoot
+    return tuple(int(round(255 * min(1.0, ch * level))) for ch in color)
+
+
 def _fmt_seconds(s: float | None) -> str:
     if s is None:
         return "—"
@@ -204,6 +211,7 @@ class StargardenApp(App):
 
     def refresh_fixtures(self) -> None:
         text = Text()
+        peak = self.program.lighting.peak
         for fixture, frame in zip(self.program.patch.fixtures, self.program.lighting.last_frames, strict=True):
             mode = fixture.mode
             colors = sorted(mode.color_cells, key=lambda c: (c.position[1], c.position[0]))
@@ -211,7 +219,7 @@ class StargardenApp(App):
             cells = row if len(row) > 1 else row * 4  # a single cell gets a wider swatch
             for cell in cells[:SWATCH_WIDTH]:
                 state = frame[cell.name]
-                r, g, b = (int(round(255 * min(1.0, ch * state.intensity))) for ch in state.color)
+                r, g, b = swatch_rgb(state.color, state.intensity, peak)
                 text.append("▓" if state.strobe else "█", style=f"rgb({r},{g},{b})")
             if mode.white_cells:
                 text.append(" ")

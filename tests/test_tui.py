@@ -10,7 +10,7 @@ from stargarden.audio import Layer
 from stargarden.conductor import State
 from stargarden.manifest import load_manifest
 from stargarden.tui import StargardenApp, install_log_buffer
-from stargarden.tui.app import LogPane, format_record
+from stargarden.tui.app import LogPane, format_record, swatch_rgb
 from test_app import make_config
 
 
@@ -57,6 +57,13 @@ async def test_console_keys_drive_program(tmp_path, assets) -> None:
             assert app._exit
 
     await program.run(foreground=drive())
+
+
+def test_swatches_preview_at_full_peak() -> None:
+    assert swatch_rgb((1.0, 0.5, 0.0), 0.8, 1.0) == (204, 102, 0)
+    assert swatch_rgb((1.0, 0.5, 0.0), 0.08, 0.1) == (204, 102, 0)  # peak 0.1 dims the wire, not the preview
+    assert swatch_rgb((1.0, 0.5, 0.0), 1.0, 0.1) == (255, 128, 0)  # a lightning flash (exempt from the peak) clamps
+    assert swatch_rgb((1.0, 0.5, 0.0), 0.0, 0.0) == (0, 0, 0)
 
 
 def test_format_record_columns_and_traceback() -> None:
