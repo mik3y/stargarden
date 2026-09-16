@@ -46,6 +46,8 @@ async def test_console_keys_drive_program(tmp_path, assets) -> None:
             assert logging.getLogger().level == logging.DEBUG
             await pilot.press("d")
             assert logging.getLogger().level == logging.INFO
+            await pilot.press("ctrl+c")  # quits immediately, no "press ctrl+q" hint
+            assert app._exit
 
     await program.run(foreground=drive())
 

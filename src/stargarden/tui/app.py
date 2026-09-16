@@ -113,6 +113,7 @@ class StargardenApp(App):
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("ctrl+c", "quit", "Quit", show=False, priority=True),  # Textual's default only hints at ctrl+q
         Binding("m", "motion('platform')", "Platform motion"),
         Binding("w", "motion('walkway')", "Walkway motion"),
         Binding("0", "force('off')", "Force OFF"),
