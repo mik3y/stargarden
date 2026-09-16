@@ -62,7 +62,7 @@ Files are decoded with `soundfile` (WAV/FLAC/OGG/MP3). Beds and music are stream
 A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift within a palette, per-fixture phase offsets so the trees don't move in unison), scaled by the program's master fade and a standing **peak** ceiling (`lighting.peak`, default 1.0; nudged live from the console for softer light on real fixtures), with optional **overlays** (lightning strobe, show-mode intensity) applied on top and exempt from the peak, then writes the universe to the DMX driver.
 
 * **Fixture types** with their **DMX modes** (built in: `generic` washes, the ADJ Jolt Bar FX2) and the **patch** (fixture → type, mode, DMX address) are declared in config. A mode exposes **cells** — the fixture's light-emitting sub-units with positions — and channels carrying GDTF-named attributes; the engine sets per-cell state and the renderer resolves shared (master) dimmers and strobes. Vocabulary: `docs/lighting-concepts.md`.
-* **Themes** are small Python classes registered by name; ambient themes are weighted-random selected and rotate slowly, show themes are selected per the music manifest.
+* **Themes** are small Python classes registered by name, sampled per cell at a `Spot` (fixture, grid column and row). Ambient mode runs one program, `ember-waves`: waves of amber and orange travelling along the bars, every other column dark. Show themes are selected per the music manifest.
 * **Overlays** rewrite the per-cell frames on top of the theme while active; lightning is the first.
 * Drivers: `enttec_open` (Enttec Open DMX USB), `enttec_pro` (Enttec DMX USB Pro), `console` (virtual fixture swatches in the TUI), `null`.
 

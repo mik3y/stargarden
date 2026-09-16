@@ -6,7 +6,7 @@ from stargarden.config import ConfigError, FixtureConfig, LightingConfig, Profil
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
 from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
-from stargarden.lighting.themes import AMBIENT_THEMES, SHOW_THEMES, get_theme
+from stargarden.lighting.themes import AMBIENT_THEMES, DRIFT_THEMES, SHOW_THEMES, Spot, get_theme
 
 
 def make_cfg(*fixtures: FixtureConfig, **kw) -> LightingConfig:
@@ -55,16 +55,54 @@ def test_custom_profile_is_a_single_mode_type() -> None:
 
 
 def test_themes_are_bounded_and_smooth() -> None:
-    for theme in list(AMBIENT_THEMES.values()) + list(SHOW_THEMES.values()):
-        prev = theme.color(0, 4, 0.0)
+    spot = Spot(0, 4, 1, 4, 0, 2)
+    for theme in [*AMBIENT_THEMES.values(), *SHOW_THEMES.values(), *DRIFT_THEMES.values()]:
+        prev = theme.color(spot, 0.0)
         for step in range(1, 200):
-            c = theme.color(0, 4, step * 0.1)
+            c = theme.color(spot, step * 0.1)
             assert all(0.0 <= ch <= 1.0 for ch in c)
             assert max(abs(a - b) for a, b in zip(c, prev, strict=True)) < 0.05
             prev = c
-            assert 0.0 <= theme.intensity(0, 4, step * 0.1) <= 1.0
+            assert 0.0 <= theme.intensity(spot, step * 0.1) <= 1.0
     with pytest.raises(KeyError):
         get_theme("nope")
+
+
+def test_ember_waves_void_columns_and_palette() -> None:
+    theme = get_theme("ember-waves")
+    grid = {(col, row): Spot(0, 4, col, 4, row, 2) for col in range(4) for row in range(2)}
+    for t in (0.0, 3.7, 8.2, 20.5):
+        for (col, row), spot in grid.items():
+            r, g, b = theme.color(spot, t)
+            assert b <= 0.02 and r >= 0.7 and g <= 0.5 and r > g  # red through amber, never washed out
+            assert theme.intensity(spot, t) == pytest.approx(theme.intensity(grid[(col, 1 - row)], t))  # a column is one unit
+        for col in range(4):  # voids carry the same wave at a fraction of the light
+            spot = grid[(col, 0)]
+            full = theme.trough_level + (1.0 - theme.trough_level) * theme.wave(spot, t)
+            assert theme.intensity(spot, t) == pytest.approx(full * theme.gate(spot, t))
+    # the voids exchange: early in the cycle columns 2/4 are dark, half a cycle later 1/3 are, and it never jumps
+    c1, c2 = grid[(0, 0)], grid[(1, 0)]
+    assert theme.gate(c2, 1.0) == pytest.approx(theme.void_level) and theme.gate(c1, 1.0) == 1.0
+    half = theme.swap_period_s / 2
+    assert theme.gate(c1, half + 1.0) == pytest.approx(theme.void_level) and theme.gate(c2, half + 1.0) == 1.0
+    gates = [theme.gate(c1, i * 0.1) for i in range(int(theme.swap_period_s * 10))]
+    assert max(abs(a - b) for a, b in zip(gates, gates[1:], strict=False)) < 0.02
+    # the wave moves: a fixed spot sees a crest and a trough within one period
+    levels = [theme.intensity(grid[(0, 0)], t) for t in [i * 0.25 for i in range(60)]]
+    assert max(levels) > 0.8 and min(levels) < 0.4
+
+
+def test_spot_grid_from_bar_cells(clock) -> None:
+    cfg = make_cfg(fx("bar", "jolt_bar_fx2", "38ch", 1), fx("wash", "generic", "rgb", 40))
+    engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("ember-waves"), random.Random(1), clock=clock)
+    bar, wash = engine._spots
+    assert bar["rgb1"] == Spot(0, 2, 0, 4, 0, 2) and bar["rgb5"] == Spot(0, 2, 0, 4, 1, 2) and bar["rgb8"] == Spot(0, 2, 3, 4, 1, 2)
+    assert wash["cell"] == Spot(1, 2) and wash["cell"].index == 1.0
+    clock.t = 0.0  # start of the exchange cycle: columns 1/3 hold the light
+    engine.fade_master(1.0, 0.0)
+    frame = engine.frame(clock())[0]
+    assert frame["rgb1"].intensity == pytest.approx(frame["rgb5"].intensity)  # a column's two rows match
+    assert frame["rgb2"].intensity < 0.1 * frame["rgb1"].intensity  # column 2 is a void
 
 
 def test_washes_render_unchanged(clock) -> None:

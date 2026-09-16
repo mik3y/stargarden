@@ -19,7 +19,7 @@ from ..config import LightingConfig
 from .color import RGB, mix
 from .drivers import DmxDriver
 from .fixtures import CellKind, CellState, FixtureFrame, Patch
-from .themes import Theme
+from .themes import Spot, Theme
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +68,7 @@ class LightingEngine:
         self.peak = cfg.peak
         self._overlays: list[Overlay] = []
         self.last_frames: list[FixtureFrame] = [self._blackout(f) for f in patch.fixtures]
+        self._spots: list[dict[str, Spot]] = [self._grid(i, f, len(patch.fixtures)) for i, f in enumerate(patch.fixtures)]
 
     # -- control --------------------------------------------------------------
 
@@ -107,21 +108,28 @@ class LightingEngine:
     def _blackout(fixture) -> FixtureFrame:
         return {cell.name: CellState(intensity=0.0) for cell in fixture.mode.cells}
 
+    @staticmethod
+    def _grid(i: int, fixture, count: int) -> dict[str, Spot]:
+        """A Spot per color cell, placing each on the fixture's grid of distinct column and row positions."""
+        cells = fixture.mode.color_cells
+        xs = sorted({c.position[0] for c in cells})
+        ys = sorted({c.position[1] for c in cells})
+        return {c.name: Spot(i, count, xs.index(c.position[0]), len(xs), ys.index(c.position[1]), len(ys)) for c in cells}
+
     def frame(self, t: float) -> list[FixtureFrame]:
         level = self._master.at(t) * self.peak
         blend = self._theme_fade.at(t) if self._theme_fade else 1.0
         if blend >= 1.0:
             self._prev_theme, self._theme_fade = None, None
-        count = len(self.patch.fixtures)
         frames = []
-        for i, fixture in enumerate(self.patch.fixtures):
+        for fixture, spots in zip(self.patch.fixtures, self._spots, strict=True):
             frame: FixtureFrame = {}
             for cell in fixture.mode.cells:
                 if cell.kind is CellKind.WHITE:
                     frame[cell.name] = CellState(intensity=0.0)  # whites belong to overlays (lightning)
                 else:
-                    index = i + cell.position[0] - 0.5  # cells spread the neighbor-to-neighbor drift across the fixture
-                    frame[cell.name] = CellState(self._color(index, count, t, blend), self._intensity(index, count, t, blend) * level)
+                    spot = spots[cell.name]
+                    frame[cell.name] = CellState(self._color(spot, t, blend), self._intensity(spot, t, blend) * level)
             frames.append(frame)
         self._overlays = [o for o in self._overlays if not o.finished(t)]
         for overlay in self._overlays:
@@ -129,16 +137,16 @@ class LightingEngine:
         self.last_frames = frames
         return frames
 
-    def _color(self, index: float, count: int, t: float, blend: float) -> RGB:
-        rgb = self.theme.color(index, count, t)
+    def _color(self, spot: Spot, t: float, blend: float) -> RGB:
+        rgb = self.theme.color(spot, t)
         if self._prev_theme is not None and blend < 1.0:
-            return mix(self._prev_theme.color(index, count, t), rgb, blend)
+            return mix(self._prev_theme.color(spot, t), rgb, blend)
         return rgb
 
-    def _intensity(self, index: float, count: int, t: float, blend: float) -> float:
-        value = self.theme.intensity(index, count, t)
+    def _intensity(self, spot: Spot, t: float, blend: float) -> float:
+        value = self.theme.intensity(spot, t)
         if self._prev_theme is not None and blend < 1.0:
-            prev = self._prev_theme.intensity(index, count, t)
+            prev = self._prev_theme.intensity(spot, t)
             return prev + (value - prev) * blend
         return value
 
