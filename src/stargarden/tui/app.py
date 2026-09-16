@@ -2,6 +2,7 @@
 keys to drive the program by hand (or to fake sensors in simulation)."""
 
 import logging
+import time
 from collections import deque
 
 from rich.text import Text
@@ -17,7 +18,15 @@ from ..config import SensorRole
 
 LEVEL_STEP = 0.05
 SWATCH_WIDTH = 16
-LEVEL_STYLES = {"DEBUG": "dim", "INFO": "", "WARNING": "yellow", "ERROR": "bold red", "CRITICAL": "bold red"}
+LOGGER_PREFIX = "stargarden."
+LOGGER_WIDTH = 16
+LEVEL_BADGES = {  # badge text and style per level; the message inherits the style for WARNING and up
+    logging.DEBUG: ("DEBUG", "dim"),
+    logging.INFO: ("INFO ", "green"),
+    logging.WARNING: ("WARN ", "bold yellow"),
+    logging.ERROR: ("ERROR", "bold red"),
+    logging.CRITICAL: ("CRIT ", "bold white on red"),
+}
 
 
 class LogBuffer(logging.Handler):
@@ -39,11 +48,40 @@ class LogBuffer(logging.Handler):
 
 def install_log_buffer(level: str) -> LogBuffer:
     buffer = LogBuffer()
-    buffer.setFormatter(logging.Formatter("%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers = [buffer]
     return buffer
+
+
+def format_record(record: logging.LogRecord) -> Text:
+    """One log line as aligned columns: time, level badge, logger, message (+ traceback)."""
+    badge, style = LEVEL_BADGES.get(record.levelno, (record.levelname[:5].ljust(5), ""))
+    name = record.name.removeprefix(LOGGER_PREFIX)
+    if len(name) > LOGGER_WIDTH:
+        name = "…" + name[-(LOGGER_WIDTH - 1) :]
+    line = Text()
+    line.append(time.strftime("%H:%M:%S", time.localtime(record.created)) + f".{int(record.msecs):03d} ", style="dim")
+    line.append(badge, style=style)
+    line.append(f" {name:<{LOGGER_WIDTH}} ", style="cyan")
+    line.append(record.getMessage(), style=style if record.levelno >= logging.WARNING else "")
+    if record.exc_info:
+        line.append("\n" + logging.Formatter().formatException(record.exc_info), style="red")
+    return line
+
+
+class LogPane(RichLog):
+    """The log stream, newest at the bottom; scrolls with the output unless you scroll up."""
+
+    BORDER_TITLE = "log"
+
+    def __init__(self, buffer: LogBuffer) -> None:
+        super().__init__(id="log", wrap=True, markup=False, highlight=False)
+        self._buffer = buffer
+
+    def drain(self) -> None:
+        for record in self._buffer.drain():
+            self.write(format_record(record))
 
 
 def _fmt_seconds(s: float | None) -> str:
@@ -61,7 +99,7 @@ class StargardenApp(App):
     #right { width: 44; }
     #fixtures { border: round $secondary; padding: 0 1; height: auto; }
     #levels { border: round $secondary; padding: 0 1; height: auto; }
-    #log { border: round $accent; height: 1fr; }
+    #log { border: round $accent; height: 1fr; padding: 0 1; }
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -75,6 +113,7 @@ class StargardenApp(App):
         Binding("n", "toggle_night", "Day/night"),
         Binding("l", "lightning", "Lightning"),
         Binding("s", "discrete", "Sound"),
+        Binding("d", "toggle_debug", "Debug log"),
         Binding("tab", "next_layer", "Layer", priority=True),
         Binding("left_square_bracket", "level(-1)", "Vol −", key_display="["),
         Binding("right_square_bracket", "level(1)", "Vol +", key_display="]"),
@@ -93,13 +132,13 @@ class StargardenApp(App):
             with Vertical(id="right"):
                 yield Static(id="fixtures")
                 yield Static(id="levels")
-        yield RichLog(id="log", wrap=True, markup=False, highlight=False)
+        yield LogPane(self.log_buffer)
         yield Footer()
 
     def on_mount(self) -> None:
         self.set_interval(0.25, self.refresh_status)
         self.set_interval(0.1, self.refresh_fixtures)
-        self.set_interval(0.25, self.drain_logs)
+        self.set_interval(0.25, self.query_one(LogPane).drain)
         self.refresh_status()
         self.refresh_fixtures()
 
@@ -159,11 +198,6 @@ class StargardenApp(App):
             text.append(f" {level:.2f}\n")
         self.query_one("#levels", Static).update(text)
 
-    def drain_logs(self) -> None:
-        log_widget = self.query_one("#log", RichLog)
-        for record in self.log_buffer.drain():
-            log_widget.write(Text(self.log_buffer.format(record), style=LEVEL_STYLES.get(record.levelname, "")))
-
     # -- actions --------------------------------------------------------------
 
     def action_motion(self, role: str) -> None:
@@ -183,6 +217,13 @@ class StargardenApp(App):
 
     def action_discrete(self) -> None:
         self.program.audio.fire_discrete()
+
+    def action_toggle_debug(self) -> None:
+        root = logging.getLogger()
+        debug = root.level > logging.DEBUG
+        root.setLevel(logging.DEBUG if debug else logging.INFO)
+        logging.getLogger(__name__).info("log level %s", "DEBUG" if debug else "INFO")
+        self.query_one(LogPane).border_title = "log (debug)" if debug else "log"
 
     def action_next_layer(self) -> None:
         layers = list(Layer)

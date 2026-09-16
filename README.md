@@ -133,6 +133,7 @@ override so it is always "night". Console keys:
 | `r` | release the forced state |
 | `n` | toggle day/night override |
 | `l` / `s` | fire a lightning flash / a discrete sound |
+| `d` | toggle DEBUG-level logging in the log pane |
 | `tab`, `[`, `]` | select a layer, nudge its level |
 | `q` | quit |
 
