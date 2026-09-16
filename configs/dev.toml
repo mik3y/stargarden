@@ -33,31 +33,36 @@ min_interval_s = 30
 
 [[lighting.fixtures]]
 name = "tree-nw"
-profile = "dim_rgbw"
+type = "generic"
+mode = "dim_rgbw"
 address = 1
 position = [-0.8, 0.8]
 
 [[lighting.fixtures]]
 name = "tree-ne"
-profile = "dim_rgbw"
+type = "generic"
+mode = "dim_rgbw"
 address = 6
 position = [0.8, 0.8]
 
 [[lighting.fixtures]]
 name = "tree-sw"
-profile = "dim_rgbw"
+type = "generic"
+mode = "dim_rgbw"
 address = 11
 position = [-0.8, -0.8]
 
 [[lighting.fixtures]]
 name = "tree-se"
-profile = "dim_rgbw"
+type = "generic"
+mode = "dim_rgbw"
 address = 16
 position = [0.8, -0.8]
 
 [[lighting.fixtures]]
 name = "sky"
-profile = "jolt_bar_fx2_38ch"  # ADJ Jolt Bar FX2 in 38CH mode
+type = "jolt_bar_fx2"
+mode = "38ch"  # set the same mode on the bar's menu
 address = 21
 position = [0.0, 1.0]
 

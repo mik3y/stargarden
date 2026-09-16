@@ -34,7 +34,8 @@ driver = "console"
 fps = 60
 [[lighting.fixtures]]
 name = "a"
-profile = "dim_rgbw"
+type = "generic"
+mode = "dim_rgbw"
 address = 1
 [assets]
 root = "{assets}"

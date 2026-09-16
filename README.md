@@ -61,7 +61,7 @@ Files are decoded with `soundfile` (WAV/FLAC/OGG/MP3). Beds and music are stream
 
 A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift within a palette, per-fixture phase offsets so the trees don't move in unison) with optional **overlays** (lightning strobe, show-mode intensity), then writes the universe to the DMX driver.
 
-* **Fixture profiles** (channel maps for RGB/RGBW wash, dimmer, strobe) and the **patch** (fixture → DMX address) are declared in config.
+* **Fixture types** with their **DMX modes** (built in: `generic` washes, the ADJ Jolt Bar FX2) and the **patch** (fixture → type, mode, DMX address) are declared in config. A mode exposes **cells** — the fixture's light-emitting sub-units with positions — and channels carrying GDTF-named attributes; the engine sets per-cell state and the renderer resolves shared (master) dimmers and strobes. Vocabulary: `docs/lighting-concepts.md`.
 * **Themes** are small Python classes registered by name; ambient themes are weighted-random selected and rotate slowly, show themes are selected per the music manifest.
 * **Lightning** is an overlay available only when strobe-capable fixtures are patched and the active theme allows it; rare, with a configured minimum interval.
 * Drivers: `enttec_pro` (real hardware), `console` (virtual fixture swatches in the TUI), `null`.
@@ -91,7 +91,7 @@ Production target:
 * Raspberry Pi (Raspberry Pi OS), with RTC module for offline timekeeping
 * Enttec DMX USB Pro (or compatible)
 * Class-compliant USB audio interface with ≥4 outputs, into external amplification (4 speakers encircling the space)
-* RGB/RGBW DMX wash fixtures; optionally one or more strobe-capable fixtures. The ADJ Jolt Bar FX2 has built-in profiles for all 17 of its DMX modes (`jolt_bar_fx2_<n>ch`); we run it in **38CH**: 4 RGB columns rendered as a gradient, and the white LEDs as an independent unit with their own dimmer and strobe, which is what lightning flashes. Reference material for it lives in `docs/fixtures/`.
+* RGB/RGBW DMX wash fixtures; optionally one or more strobe-capable fixtures. The ADJ Jolt Bar FX2 is built in with all 17 of its DMX modes (`type = "jolt_bar_fx2"`, `mode = "38ch"`…); we run it in **38CH**: 4 RGB columns rendered as a gradient, and the white LEDs as their own cells with a separate dimmer and strobe, which is what lightning flashes. Reference material for it lives in `docs/fixtures/`.
 * 2× Shelly Blu Motion (platform, walkway), unencrypted BTHome broadcasts
 
 Development target: macOS laptop, no hardware — stereo audio out, simulated fixtures and sensors.
@@ -155,13 +155,16 @@ src/stargarden/
   audio/          decoders, quad panner, streaming sources, mixer, backends, engine
   tui/            Textual console
 configs/          dev.toml (simulation) and production.toml (Pi template)
+docs/             lighting-concepts.md (vocabulary appendix), fixtures/ (reference files)
 scripts/          make_test_assets.py
 tests/            pytest; `test_app.py` runs a whole simulated visit
 ```
 
-Fixture profiles are tuples of channel roles (`red`, `dimmer`, `strobe_effect`,
-zoned `red:3` / `white:7`, ...) declared in `lighting/fixtures.py` or under
-`[lighting.profiles.<name>]` in config; unknown roles render as 0.
+Fixture types live in `lighting/fixtures.py` (see `docs/lighting-concepts.md`
+for the vocabulary). A simple one-cell fixture can also be declared in config as
+a list of channel roles under `[lighting.profiles.<name>]` (`red`, `green`,
+`blue`, `white`, `dimmer`, `dimmer_fine`, `strobe`; anything else is parked at 0)
+and patched with `type = "<name>"`.
 
 Pure logic (state machine, occupancy, panning, themes, patch rendering) takes an
 injected clock and is unit-tested; hardware adapters (`sounddevice`, `bleak`,

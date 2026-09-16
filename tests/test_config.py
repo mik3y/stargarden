@@ -12,6 +12,8 @@ def test_dev_config_loads() -> None:
     assert cfg.audio.mode is AudioMode.STEREO
     assert cfg.lighting.driver == "console"
     assert len(cfg.lighting.fixtures) == 5
+    assert (cfg.lighting.fixtures[0].type, cfg.lighting.fixtures[0].mode) == ("generic", "dim_rgbw")
+    assert (cfg.lighting.fixtures[4].type, cfg.lighting.fixtures[4].mode) == ("jolt_bar_fx2", "38ch")
     assert cfg.lighting.fixtures[0].position == (-0.8, 0.8)
     assert cfg.assets_root == (CONFIGS / ".." / "assets-dev")
     assert cfg.schedule.enabled is False

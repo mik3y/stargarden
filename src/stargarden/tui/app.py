@@ -131,16 +131,20 @@ class StargardenApp(App):
 
     def refresh_fixtures(self) -> None:
         text = Text()
-        for fixture, state in zip(self.program.patch.fixtures, self.program.lighting.last_states, strict=True):
-            zones = state.zones[: fixture.profile.zones_per_row] or (state.rgb,) * 4
-            glyph = "▓" if state.strobe else "█"
-            for z in range(min(len(zones), SWATCH_WIDTH)):
-                color = zones[z * len(zones) // min(len(zones), SWATCH_WIDTH)]
-                r, g, b = (int(round(255 * min(1.0, ch * state.intensity))) for ch in color)
-                text.append(glyph, style=f"rgb({r},{g},{b})")
-            if fixture.profile.has_white_unit:
-                w = int(round(255 * state.white))
-                text.append(" ▮", style=f"rgb({w},{w},{w})")
+        for fixture, frame in zip(self.program.patch.fixtures, self.program.lighting.last_frames, strict=True):
+            mode = fixture.mode
+            colors = sorted(mode.color_cells, key=lambda c: (c.position[1], c.position[0]))
+            row = [c for c in colors if c.position[1] == colors[0].position[1]] if colors else []
+            cells = row if len(row) > 1 else row * 4  # a single cell gets a wider swatch
+            for cell in cells[:SWATCH_WIDTH]:
+                state = frame[cell.name]
+                r, g, b = (int(round(255 * min(1.0, ch * state.intensity))) for ch in state.color)
+                text.append("▓" if state.strobe else "█", style=f"rgb({r},{g},{b})")
+            if mode.white_cells:
+                text.append(" ")
+                for cell in mode.white_cells[: SWATCH_WIDTH // 2]:
+                    w = int(round(255 * frame[cell.name].intensity))
+                    text.append("▮", style=f"rgb({w},{w},{w})")
             text.append(f" {fixture.name}\n")
         self.query_one("#fixtures", Static).update(text)
 

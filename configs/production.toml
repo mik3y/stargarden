@@ -36,13 +36,15 @@ fps = 30
 
 [[lighting.fixtures]]
 name = "tree-1"
-profile = "dim_rgbw"
+type = "generic"
+mode = "dim_rgbw"
 address = 1
 position = [-0.8, 0.8]
 
 [[lighting.fixtures]]
 name = "sky"
-profile = "jolt_bar_fx2_38ch"  # ADJ Jolt Bar FX2, set to 38CH mode on its menu
+type = "jolt_bar_fx2"
+mode = "38ch"  # set the same mode on the bar's menu
 address = 11
 position = [0.0, 1.0]
 

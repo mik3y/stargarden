@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from ..config import LightingConfig
 from .color import RGB, mix
 from .drivers import DmxDriver
-from .fixtures import FixtureState, Patch
+from .fixtures import CellKind, CellState, FixtureFrame, Patch
 from .themes import Theme
 
 log = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class LightingEngine:
         self._master = _Ramp(0.0, 0.0, 0.0, 0.0)
         self._flashes: list[tuple[float, float]] = []  # (start_t, end_t)
         self._next_lightning = self._schedule_lightning(clock())
-        self.last_states: list[FixtureState] = [FixtureState() for _ in patch.fixtures]
+        self.last_frames: list[FixtureFrame] = [self._blackout(f) for f in patch.fixtures]
 
     # -- control --------------------------------------------------------------
 
@@ -86,7 +86,11 @@ class LightingEngine:
 
     # -- rendering ------------------------------------------------------------
 
-    def frame(self, t: float) -> list[FixtureState]:
+    @staticmethod
+    def _blackout(fixture) -> FixtureFrame:
+        return {cell.name: CellState(intensity=0.0) for cell in fixture.mode.cells}
+
+    def frame(self, t: float) -> list[FixtureFrame]:
         master = self._master.at(t)
         blend = self._theme_fade.at(t) if self._theme_fade else 1.0
         if blend >= 1.0:
@@ -94,21 +98,25 @@ class LightingEngine:
         self._flashes = [f for f in self._flashes if f[1] > t]
         flashing = any(f[0] <= t < f[1] for f in self._flashes)
         count = len(self.patch.fixtures)
-        states = []
+        frames = []
         for i, fixture in enumerate(self.patch.fixtures):
-            profile = fixture.profile
-            if flashing and profile.can_flash and not profile.has_white_unit:
-                states.append(FixtureState(rgb=LIGHTNING_COLOR, intensity=1.0, strobe=1.0))
-                continue
-            n = profile.rgb_zones
-            zones = tuple(self._color(i + profile.zone_x(z), count, t, blend) for z in range(n)) if n > 1 else ()
-            rgb = zones[n // 2] if zones else self._color(i, count, t, blend)
-            state = FixtureState(rgb=rgb, intensity=self._intensity(i, count, t, blend) * master, zones=zones)
-            if flashing and profile.has_white_unit:  # the whites flash; the color program carries on
-                state.white, state.strobe = 1.0, 1.0
-            states.append(state)
-        self.last_states = states
-        return states
+            mode = fixture.mode
+            # lightning: pulse the white cells and let the color program carry on;
+            # fixtures with no whites but a shutter flash their color cells instead
+            flash_whites = flashing and bool(mode.white_cells)
+            flash_color = flashing and not mode.white_cells and mode.can_flash
+            frame: FixtureFrame = {}
+            for cell in mode.cells:
+                if cell.kind is CellKind.WHITE:
+                    frame[cell.name] = CellState(intensity=1.0 if flash_whites else 0.0, strobe=1.0 if flash_whites else 0.0)
+                elif flash_color:
+                    frame[cell.name] = CellState(LIGHTNING_COLOR, 1.0, 1.0)
+                else:
+                    index = i + cell.position[0] - 0.5  # cells spread the neighbor-to-neighbor drift across the fixture
+                    frame[cell.name] = CellState(self._color(index, count, t, blend), self._intensity(index, count, t, blend) * master)
+            frames.append(frame)
+        self.last_frames = frames
+        return frames
 
     def _color(self, index: float, count: int, t: float, blend: float) -> RGB:
         rgb = self.theme.color(index, count, t)
@@ -148,5 +156,5 @@ class LightingEngine:
                 next_frame += period
                 await asyncio.sleep(max(0.0, next_frame - self._clock()))
         finally:
-            self.driver.send(self.patch.render([FixtureState() for _ in self.patch.fixtures]))
+            self.driver.send(self.patch.render([self._blackout(f) for f in self.patch.fixtures]))
             self.driver.close()

@@ -1,103 +1,60 @@
 import random
+from pathlib import Path
 
 import pytest
 
-from stargarden.config import ConfigError, FixtureConfig, LightingConfig, LightningConfig, ProfileConfig
+from stargarden.config import ConfigError, FixtureConfig, LightingConfig, LightningConfig, ProfileConfig, load_config
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
-from stargarden.lighting.fixtures import BUILTIN_PROFILES, FixtureState, Patch
+from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
 from stargarden.lighting.themes import AMBIENT_THEMES, SHOW_THEMES, get_theme
+
+CONFIGS = Path(__file__).resolve().parent.parent / "configs"
 
 
 def make_cfg(*fixtures: FixtureConfig, **kw) -> LightingConfig:
     return LightingConfig(driver="console", fixtures=fixtures, **kw)
 
 
-def test_patch_render_profiles() -> None:
+def fx(name: str, type_: str, mode: str, address: int) -> FixtureConfig:
+    return FixtureConfig(name=name, type=type_, address=address, mode=mode)
+
+
+def cell(color=(0.0, 0.0, 0.0), intensity: float = 1.0, strobe: float = 0.0) -> dict[str, CellState]:
+    return {"cell": CellState(color, intensity, strobe)}
+
+
+def test_generic_modes_render() -> None:
     patch = Patch.from_config(
-        make_cfg(FixtureConfig("a", "dim_rgbw", 1), FixtureConfig("b", "rgb", 10), FixtureConfig("c", "rgb_strobe", 20))
+        make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("b", "generic", "rgb", 10), fx("c", "generic", "rgb_strobe", 20))
     )
-    frame = patch.render(
-        [
-            FixtureState(rgb=(1.0, 0.5, 0.5), intensity=0.5),
-            FixtureState(rgb=(1.0, 0.0, 0.0), intensity=0.5),
-            FixtureState(rgb=(0.0, 0.0, 1.0), intensity=1.0, strobe=1.0),
-        ]
-    )
+    frame = patch.render([cell((1.0, 0.5, 0.5), 0.5), cell((1.0, 0.0, 0.0), 0.5), cell((0.0, 0.0, 1.0), 1.0, strobe=1.0)])
     assert len(frame) == 512
-    assert frame[0:5] == bytes([128, 128, 0, 0, 128])  # dimmer, r-w, g-w, b-w, w
+    assert frame[0:5] == bytes([128, 128, 0, 0, 128])  # dimmer, then r-w, g-w, b-w, w
     assert frame[9:12] == bytes([128, 0, 0])  # no dimmer: intensity folded into color
-    assert frame[19:23] == bytes([0, 0, 255, 255])
+    assert frame[19:23] == bytes([0, 0, 255, 255])  # single-channel strobe at full rate
     assert patch.can_flash
 
 
-def test_patch_rejects_overlap_and_range() -> None:
+def test_patch_rejects_bad_config() -> None:
     with pytest.raises(ConfigError, match="overlaps"):
-        Patch.from_config(make_cfg(FixtureConfig("a", "rgbw", 1), FixtureConfig("b", "rgb", 4)))
+        Patch.from_config(make_cfg(fx("a", "generic", "rgbw", 1), fx("b", "generic", "rgb", 4)))
     with pytest.raises(ConfigError, match="out of range"):
-        Patch.from_config(make_cfg(FixtureConfig("a", "rgbw", 510)))
-    with pytest.raises(ConfigError, match="unknown profile"):
-        Patch.from_config(make_cfg(FixtureConfig("a", "laser", 1)))
+        Patch.from_config(make_cfg(fx("a", "generic", "rgbw", 510)))
+    with pytest.raises(ConfigError, match="unknown fixture type"):
+        Patch.from_config(make_cfg(fx("a", "laser", "", 1)))
+    with pytest.raises(ConfigError, match="no mode"):
+        Patch.from_config(make_cfg(fx("a", "generic", "octo", 1)))
+    with pytest.raises(ConfigError, match="pick one"):
+        Patch.from_config(make_cfg(fx("a", "jolt_bar_fx2", "", 1)))
 
 
-def test_jolt_bar_fx2_simple_modes() -> None:
-    patch = Patch.from_config(make_cfg(FixtureConfig("bar", "jolt_bar_fx2_9ch", 1), FixtureConfig("bar6", "jolt_bar_fx2_6ch", 10)))
-    assert patch.can_flash
-    idle = patch.render([FixtureState(rgb=(0.2, 0.2, 1.0), intensity=0.5), FixtureState(rgb=(1.0, 1.0, 1.0), intensity=1.0)])
-    # color stays on the RGB channels (the white is a separate unit, off), 16-bit dimmer, strobe open
-    assert idle[0:4] == bytes([51, 51, 255, 0])
-    assert (idle[4] << 8 | idle[5]) == round(0.5 * 65535)
-    assert idle[6:9] == bytes([0, 0, 0])
-    assert idle[9:15] == bytes([255, 255, 255, 0, 255, 255])
-    flashing = patch.render([FixtureState(rgb=(1.0, 0.0, 0.0), intensity=1.0, strobe=1.0, white=1.0), FixtureState(white=0.5)])
-    assert flashing[0:4] == bytes([255, 0, 0, 255])
-    assert flashing[6:9] == bytes([4, 255, 255])  # plain strobe, fastest rate/duration
-    assert flashing[12] == 128  # 6CH: the white channel is the only white control
-
-
-def test_jolt_bar_fx2_all_modes_have_matching_footprints() -> None:
-    modes = {name: p for name, p in BUILTIN_PROFILES.items() if name.startswith("jolt_bar_fx2_")}
-    assert len(modes) == 17
-    for name, profile in modes.items():
-        assert profile.footprint == int(name.rsplit("_", 1)[1].removesuffix("ch"))
-        assert profile.zone_rows == 2 and profile.has_white_unit
-
-
-def test_jolt_bar_fx2_38ch_white_unit() -> None:
-    patch = Patch.from_config(make_cfg(FixtureConfig("bar", "jolt_bar_fx2_38ch", 1)))
-    zones = tuple((z / 8, 0.0, 1.0 - z / 8) for z in range(8))
-    frame = patch.render([FixtureState(rgb=zones[0], intensity=0.5, zones=zones)])
-    assert frame[0:3] == bytes([0, 0, 255]) and frame[21:24] == bytes([223, 0, 32])  # zones 1 and 8, undimmed color
-    assert (frame[24] << 8 | frame[25]) == round(0.5 * 65535)  # outer dimmer carries intensity
-    assert frame[26:29] == bytes([0, 0, 0])  # outer strobe open
-    assert frame[29:33] == bytes([255] * 4)  # white groups pinned full...
-    assert frame[33:35] == bytes([0, 0])  # ...their dimmer carries the (zero) white level
-    assert frame[35:38] == bytes([0, 0, 0])
-    flash = patch.render([FixtureState(rgb=zones[0], intensity=0.5, zones=zones, white=1.0, strobe=1.0)])
-    assert flash[0:3] == bytes([0, 0, 255]) and flash[26:29] == bytes([0, 0, 0])  # color untouched, RGB not strobing
-    assert flash[33:38] == bytes([255, 255, 4, 255, 255])  # whites full and strobing
-
-
-def test_jolt_bar_fx2_zoned_modes() -> None:
-    patch = Patch.from_config(make_cfg(FixtureConfig("bar", "jolt_bar_fx2_16ch", 1), FixtureConfig("bar18", "jolt_bar_fx2_18ch", 20)))
-    zones = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.5, 0.5, 0.5))
-    frame = patch.render(
-        [FixtureState(rgb=zones[0], intensity=0.5, zones=zones, white=0.25), FixtureState(rgb=(0.4, 0.4, 1.0), intensity=0.5, white=0.75)]
-    )
-    # 16CH: no dimmer, so intensity folds into the four RGB zones; the whites carry the white level
-    assert frame[0:12] == bytes([128, 0, 0, 0, 128, 0, 0, 0, 128, 64, 64, 64])
-    assert frame[12:16] == bytes([64] * 4)
-    # 18CH: 16-bit outer dimmer at intensity, the white dimmer at the white level, both strobes open
-    assert frame[19:22] == bytes([102, 102, 255])
-    assert (frame[23] << 8 | frame[24]) == round(0.5 * 65535)
-    assert (frame[30] << 8 | frame[31]) == round(0.75 * 65535)
-    assert frame[25:28] == bytes([0, 0, 0]) and frame[32:35] == bytes([0, 0, 0])
-
-
-def test_custom_profile() -> None:
-    cfg = make_cfg(FixtureConfig("a", "par", 1), profiles={"par": ProfileConfig(("red", "green", "blue", "dimmer"))})
+def test_custom_profile_is_a_single_mode_type() -> None:
+    cfg = make_cfg(fx("a", "par", "", 1), profiles={"par": ProfileConfig(("red", "green", "blue", "dimmer"))})
     patch = Patch.from_config(cfg)
-    assert patch.render([FixtureState(rgb=(1, 1, 1), intensity=1)])[:4] == bytes([255, 255, 255, 255])
+    assert patch.render([cell((1, 1, 1), 1)])[:4] == bytes([255, 255, 255, 255])
+    with pytest.raises(ConfigError, match="dimmer_fine"):
+        Patch.from_config(make_cfg(fx("a", "bad", "", 1), profiles={"bad": ProfileConfig(("dimmer_fine",))}))
 
 
 def test_themes_are_bounded_and_smooth() -> None:
@@ -113,23 +70,36 @@ def test_themes_are_bounded_and_smooth() -> None:
         get_theme("nope")
 
 
+def test_dev_config_washes_render_unchanged(clock) -> None:
+    """The four washes must render byte-for-byte what the previous fixture model produced."""
+    cfg = load_config(CONFIGS / "dev.toml").lighting
+    patch = Patch.from_config(cfg)
+    clock.t = 1234.5
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
+    engine.fade_master(1.0, 0.0)
+    frame = patch.render(engine.frame(clock()))
+    assert frame[:20] == bytes([188, 0, 73, 132, 5, 217, 0, 64, 121, 44, 191, 0, 7, 105, 70, 198, 13, 0, 115, 19])
+    bar = frame[20:58]  # jolt 38ch: 8 lit RGB zones, outer dimmer full, both shutters open, whites dark
+    assert sum(bar[0:24]) > 0 and bar[24] > 150 and bar[26:29] == bytes([0, 0, 0])  # theme intensity on the outer dimmer
+    assert bar[29:38] == bytes(9)
+
+
 def test_engine_fades_and_lightning(clock) -> None:
-    cfg = make_cfg(FixtureConfig("a", "dim_rgbw", 1), FixtureConfig("sky", "rgb_strobe", 10), lightning=LightningConfig(enabled=False))
+    cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("sky", "generic", "rgb_strobe", 10), lightning=LightningConfig(enabled=False))
     patch = Patch.from_config(cfg)
     engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
-    assert engine.frame(clock())[0].intensity == 0.0  # master starts dark
+    assert engine.frame(clock())[0]["cell"].intensity == 0.0  # master starts dark
     engine.fade_master(1.0, 10.0)
     clock.advance(5)
-    mid = engine.frame(clock())[0].intensity
+    mid = engine.frame(clock())[0]["cell"].intensity
     assert 0.3 < mid < 0.6
     clock.advance(5)
-    full = engine.frame(clock())[0].intensity
-    assert full > mid
+    assert engine.frame(clock())[0]["cell"].intensity > mid
 
-    before = engine.frame(clock())[0].rgb
+    before = engine.frame(clock())[0]["cell"].color
     engine.set_theme(get_theme("ember"), fade_s=20.0)
     clock.advance(0.1)
-    just_after = engine.frame(clock())[0].rgb
+    just_after = engine.frame(clock())[0]["cell"].color
     assert max(abs(a - b) for a, b in zip(before, just_after, strict=True)) < 0.05  # crossfade, not a jump
     clock.advance(30)
     engine.frame(clock())
@@ -137,37 +107,105 @@ def test_engine_fades_and_lightning(clock) -> None:
 
     engine.trigger_lightning()
     clock.advance(0.06)
-    states = engine.frame(clock())
-    assert states[1].strobe == 1.0 and states[0].strobe == 0.0
+    frames = engine.frame(clock())
+    assert frames[1]["cell"].strobe == 1.0 and frames[0]["cell"].strobe == 0.0
     clock.advance(5)
-    assert engine.frame(clock())[1].strobe == 0.0
+    assert engine.frame(clock())[1]["cell"].strobe == 0.0
 
 
-def test_engine_lightning_flashes_white_unit_only(clock) -> None:
-    cfg = make_cfg(FixtureConfig("bar", "jolt_bar_fx2_38ch", 1), lightning=LightningConfig(enabled=False))
+# -- ADJ Jolt Bar FX2 -------------------------------------------------------------
+
+
+def test_jolt_bar_fx2_all_modes() -> None:
+    modes = BUILTIN_TYPES["jolt_bar_fx2"].modes
+    assert len(modes) == 17
+    for name, mode in modes.items():
+        assert mode.footprint == int(name.removesuffix("ch"))
+        assert mode.white_cells and mode.color_cells and mode.can_flash
+        for cells in (mode.color_cells, mode.white_cells):
+            assert len({c.position for c in cells}) == len(cells)  # every cell of a kind has its own spot
+
+
+def test_jolt_bar_fx2_simple_modes() -> None:
+    patch = Patch.from_config(make_cfg(fx("bar", "jolt_bar_fx2", "9ch", 1), fx("bar6", "jolt_bar_fx2", "6ch", 10)))
+    idle = patch.render(
+        [
+            {"rgb1": CellState((0.2, 0.2, 1.0), 0.5), "w1": CellState(intensity=0.0)},
+            {"rgb1": CellState((1.0, 1.0, 1.0), 1.0), "w1": CellState(intensity=0.5)},
+        ]
+    )
+    # 9CH: color undimmed on RGB, white off, the shared 16-bit dimmer carries the intensity, shutter open
+    assert idle[0:9] == bytes([51, 51, 255, 0, 128, 0, 0, 0, 0])
+    # 6CH: the white is mastered by the shared dimmer (at full), so its channel is the white level
+    assert idle[9:15] == bytes([255, 255, 255, 128, 255, 255])
+    flash = patch.render(
+        [{"rgb1": CellState((1.0, 0.0, 0.0), 1.0), "w1": CellState(intensity=1.0, strobe=1.0)}, {"rgb1": CellState(), "w1": CellState()}]
+    )
+    assert flash[0:9] == bytes([255, 0, 0, 255, 255, 255, 5, 255, 255])  # shutter "Strobe" (3–5) at full rate/duration
+
+
+def test_jolt_bar_fx2_38ch_white_unit() -> None:
+    patch = Patch.from_config(make_cfg(fx("bar", "jolt_bar_fx2", "38ch", 1)))
+    frame = {f"rgb{z + 1}": CellState((z / 8, 0.0, 1.0 - z / 8), 0.5) for z in range(8)}
+    frame |= {f"w{j}": CellState(intensity=0.0) for j in range(1, 5)}
+    out = patch.render([frame])
+    assert out[0:3] == bytes([0, 0, 255]) and out[21:24] == bytes([223, 0, 32])  # zones 1 and 8, undimmed color
+    assert out[24:26] == bytes([128, 0])  # outer 16-bit dimmer carries the intensity
+    assert out[26:29] == bytes([0, 0, 0])  # outer shutter open
+    assert out[29:38] == bytes(9)  # white groups, white dimmer, white shutter all dark
+
+    for j in range(1, 5):
+        frame[f"w{j}"] = CellState(intensity=1.0, strobe=1.0)
+    out = patch.render([frame])
+    assert out[0:3] == bytes([0, 0, 255]) and out[26:29] == bytes([0, 0, 0])  # color untouched, RGB not strobing
+    assert out[29:38] == bytes([255, 255, 255, 255, 255, 255, 5, 255, 255])  # whites full and strobing
+
+    frame["w1"], frame["w2"], frame["w3"], frame["w4"] = (CellState(intensity=i) for i in (1.0, 0.5, 0.0, 0.0))
+    out = patch.render([frame])
+    assert out[29:35] == bytes([255, 128, 0, 0, 255, 255])  # mastered cells: relative levels, dimmer at the brightest
+
+
+def test_jolt_bar_fx2_zoned_modes() -> None:
+    patch = Patch.from_config(make_cfg(fx("bar", "jolt_bar_fx2", "16ch", 1), fx("bar18", "jolt_bar_fx2", "18ch", 20)))
+    zones = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.5, 0.5, 0.5))
+    f16 = {f"rgb{i + 1}": CellState(c, 0.5) for i, c in enumerate(zones)} | {f"w{j}": CellState(intensity=0.25) for j in range(1, 5)}
+    f18 = {"rgb1": CellState((0.4, 0.4, 1.0), 0.5), "w1": CellState(intensity=0.75)}
+    out = patch.render([f16, f18])
+    # 16CH has no dimmers: intensity folds into the four RGB zones and the whites carry their own level
+    assert out[0:12] == bytes([128, 0, 0, 0, 128, 0, 0, 0, 128, 64, 64, 64])
+    assert out[12:16] == bytes([64] * 4)
+    # 18CH: RGB undimmed with a 16-bit outer dimmer; the white has no channel of its own, only its dimmer
+    assert out[19:22] == bytes([102, 102, 255])
+    assert out[23:25] == bytes([128, 0]) and out[25:28] == bytes([0, 0, 0])
+    assert out[30:32] == bytes([191, 255]) and out[32:35] == bytes([0, 0, 0])
+
+
+def test_engine_lightning_flashes_white_cells_only(clock) -> None:
+    cfg = make_cfg(fx("bar", "jolt_bar_fx2", "38ch", 1), lightning=LightningConfig(enabled=False))
     engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
     engine.fade_master(1.0, 0.0)
     clock.advance(1)
     before = engine.frame(clock())[0]
-    assert before.white == 0.0 and before.strobe == 0.0
+    assert all(before[f"w{j}"].intensity == 0.0 for j in range(1, 5))
     engine.trigger_lightning()
     clock.advance(0.06)
     during = engine.frame(clock())[0]
-    assert during.white == 1.0 and during.strobe == 1.0
-    drift = max(abs(a - b) for za, zb in zip(during.zones, before.zones, strict=True) for a, b in zip(za, zb, strict=True))
+    assert all(during[f"w{j}"].intensity == 1.0 and during[f"w{j}"].strobe == 1.0 for j in range(1, 5))
+    assert during["rgb1"].strobe == 0.0
+    drift = max(abs(a - b) for a, b in zip(during["rgb1"].color, before["rgb1"].color, strict=True))
     assert drift < 0.01  # the color program carries on underneath
 
 
-def test_engine_renders_zoned_bar_as_two_row_gradient(clock) -> None:
-    cfg = make_cfg(FixtureConfig("a", "dim_rgbw", 1), FixtureConfig("bar", "jolt_bar_fx2_112ch", 10))
+def test_engine_renders_bar_as_two_row_gradient(clock) -> None:
+    cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("bar", "jolt_bar_fx2", "112ch", 10))
     patch = Patch.from_config(cfg)
     engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("aurora"), random.Random(1), clock=clock)
     engine.fade_master(1.0, 0.0)
     clock.advance(1)
-    bar = engine.frame(clock())[1]
-    assert len(bar.zones) == 32
-    assert bar.zones[:16] == bar.zones[16:]  # bottom row mirrors the top row
-    steps = [max(abs(a - b) for a, b in zip(bar.zones[z], bar.zones[z + 1], strict=True)) for z in range(15)]
+    frames = engine.frame(clock())
+    bar = frames[1]
+    top = [bar[f"rgb{i}"].color for i in range(1, 17)]
+    assert top == [bar[f"rgb{i}"].color for i in range(17, 33)]  # bottom row mirrors the top row
+    steps = [max(abs(a - b) for a, b in zip(top[z], top[z + 1], strict=True)) for z in range(15)]
     assert max(steps) < 0.15 and sum(steps) > 0.05  # a smooth, non-flat gradient along the bar
-    assert bar.rgb == bar.zones[16]
-    assert sum(patch.render([FixtureState(), bar])[9:105]) > 0  # the bar's 96 RGB channels are lit
+    assert sum(patch.render(frames)[9:105]) > 0  # the bar's 96 RGB channels are lit

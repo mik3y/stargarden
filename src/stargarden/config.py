@@ -78,8 +78,9 @@ class DiscretesConfig:
 @dataclass(frozen=True)
 class FixtureConfig:
     name: str
-    profile: str
+    type: str  # a built-in fixture type ("generic", "jolt_bar_fx2") or a [lighting.profiles.*] name
     address: int
+    mode: str = ""  # DMX mode of the type; may be omitted when the type has only one
     position: tuple[float, float] = (0.0, 0.0)
 
 
@@ -92,8 +93,9 @@ class LightningConfig:
 
 @dataclass(frozen=True)
 class ProfileConfig:
+    """A simple one-cell fixture type declared in config as a list of channel roles."""
+
     channels: tuple[str, ...]
-    zone_rows: int = 1
 
 
 @dataclass(frozen=True)

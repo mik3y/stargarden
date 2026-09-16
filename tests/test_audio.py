@@ -77,11 +77,14 @@ def test_stream_source_reads_wav_and_resamples(assets: Path) -> None:
 
     looped = StreamSource(assets / "beds" / "bed.wav", 48000, loop=True, blocksize=512)
     time.sleep(0.05)
-    a = looped.read(4800)
-    b = looped.read(4800)
-    assert not looped.finished
-    assert a[0, 0] == pytest.approx(-0.5, abs=1e-3)
-    assert b[0, 0] == pytest.approx(-0.5, abs=1e-3)
+    chunks = []
+    for _ in range(40):  # two full loops of the 4800-frame bed, paced like real playback
+        chunks.append(looped.read(256))
+        time.sleep(0.005)
+    data = np.concatenate(chunks)
+    assert not looped.finished and looped.underrun_frames == 0
+    assert data[0, 0] == pytest.approx(-0.5, abs=1e-3)
+    assert data[4799, 0] == pytest.approx(0.5, abs=1e-3) and data[4800, 0] == pytest.approx(-0.5, abs=1e-3)  # seamless wrap
     looped.close()
 
 
