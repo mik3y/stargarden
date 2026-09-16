@@ -100,7 +100,7 @@ def test_open_dmx_frames_are_break_mab_startcode_slots(fake_serial: type[FakeSer
 
     writes = [e[1] for e in ser.events if e[0] == "write"]
     assert all(len(w) == 1 + UNIVERSE_SIZE and w[0] == 0 for w in writes)
-    assert writes[-1] == b"\x00" + universe  # the final frame is transmitted synchronously on close
+    assert writes[-EnttecOpenDriver.FINAL_FRAMES :] == [b"\x00" + universe] * EnttecOpenDriver.FINAL_FRAMES  # repeated on close
     assert ser.events[-1] == ("close",)
 
     # every frame: break asserted, released, then the bytes, drained before the next break
@@ -191,6 +191,30 @@ def test_open_dmx_reopens_after_serial_error(fake_serial: type[FakeSerial], monk
         wait_for(lambda: fake_serial.instances[-1].writes >= 2)
     finally:
         driver.close()
+
+
+@pytest.mark.asyncio
+async def test_engine_shutdown_leaves_the_wire_dark(fake_serial: type[FakeSerial]) -> None:
+    import asyncio
+    import random
+
+    from stargarden.config import FixtureConfig
+    from stargarden.lighting import LightingEngine, Patch
+    from stargarden.lighting.themes import get_theme
+
+    cfg = LightingConfig(driver="enttec_open", fixtures=(FixtureConfig("bar", "jolt_bar_fx2", 1, "38ch"),))
+    engine = LightingEngine(Patch.from_config(cfg), EnttecOpenDriver("/dev/ttyUSB9"), cfg, get_theme("ember-waves"), random.Random(1))
+    engine.fade_master(1.0, 0.0)
+    task = asyncio.get_running_loop().create_task(engine.run())
+    await asyncio.sleep(0.2)
+    (ser,) = fake_serial.instances
+    assert any(sum(e[1]) > 0 for e in ser.events if e[0] == "write")  # it was lit
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    writes = [e[1] for e in ser.events if e[0] == "write"]
+    assert writes[-EnttecOpenDriver.FINAL_FRAMES :] == [bytes(1 + UNIVERSE_SIZE)] * EnttecOpenDriver.FINAL_FRAMES
+    assert ser.events[-1] == ("close",) and not ser.is_open
 
 
 def test_pro_driver_wraps_universe_in_send_dmx_packet(fake_serial: type[FakeSerial]) -> None:

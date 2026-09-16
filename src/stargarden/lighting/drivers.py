@@ -64,6 +64,8 @@ class EnttecOpenDriver(DmxDriver):
     BREAK_S = 176e-6  # spec minimum 92 µs; sleep granularity only lengthens it
     MAB_S = 12e-6  # mark after break; spec minimum 12 µs
     RETRY_S = 2.0  # reopen interval after a serial error (widget missing or unplugged)
+    FINAL_FRAMES = 4  # the last frame (the engine's blackout) is repeated so it survives a lying tcdrain or a purge on close
+    FINAL_SETTLE_S = 0.05
     FTDI_VID, FT232R_PID = 0x0403, 0x6001
 
     def __init__(self, port: str) -> None:
@@ -95,7 +97,9 @@ class EnttecOpenDriver(DmxDriver):
             self._thread = None
         if self._serial is not None:
             try:
-                self._transmit(self._frame)  # whatever was last sent, normally the engine's blackout
+                for _ in range(self.FINAL_FRAMES):  # whatever was last sent, normally the engine's blackout
+                    self._transmit(self._frame)
+                time.sleep(self.FINAL_SETTLE_S)  # let the UART finish before the port (and its buffers) go away
             except Exception:  # best effort on the way out
                 log.debug("dmx: final frame not sent", exc_info=True)
             self._close_port()
