@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         from .tui import StargardenApp, install_log_buffer
 
         buffer = install_log_buffer(level)
+        logging.captureWarnings(True)  # Python warnings reach the log pane instead of the terminal
 
     try:
         config = load_config(args.config)

@@ -9,7 +9,8 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, RichLog, Static
+from textual.css.query import NoMatches
+from textual.widgets import Header, RichLog, Static
 
 from ..app import Stargarden
 from ..audio import Layer
@@ -19,6 +20,16 @@ from ..config import SensorRole
 LEVEL_STEP = 0.05
 SWATCH_WIDTH = 16
 LOGGER_PREFIX = "stargarden."
+KEYS = (
+    ("m / w", "platform / walkway motion"),
+    ("0 1 2 3", "force off/ambient/presence/show"),
+    ("r", "release forced state"),
+    ("n", "toggle day / night"),
+    ("l / s", "lightning / discrete sound"),
+    ("d", "debug logging"),
+    ("tab [ ]", "select layer, volume −/+"),
+    ("q", "quit"),
+)
 LOGGER_WIDTH = 16
 LEVEL_BADGES = {  # badge text and style per level; the message inherits the style for WARNING and up
     logging.DEBUG: ("DEBUG", "dim"),
@@ -95,11 +106,10 @@ class StargardenApp(App):
     TITLE = "Stargarden"
     CSS = """
     #top { height: auto; }
-    #status { width: 1fr; border: round $primary; padding: 0 1; }
-    #right { width: 44; }
-    #fixtures { border: round $secondary; padding: 0 1; height: auto; }
-    #levels { border: round $secondary; padding: 0 1; height: auto; }
-    #log { border: round $accent; height: 1fr; padding: 0 1; }
+    #status { width: 1fr; height: auto; border: round $primary; padding: 0 1; }
+    #right { width: 46; height: auto; }
+    #fixtures, #levels, #keys { height: auto; border: round $secondary; padding: 0 1; }
+    #log { height: 1fr; border: round $accent; padding: 0 1; }
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -132,15 +142,32 @@ class StargardenApp(App):
             with Vertical(id="right"):
                 yield Static(id="fixtures")
                 yield Static(id="levels")
+                yield Static(self._keys_text(), id="keys")
         yield LogPane(self.log_buffer)
-        yield Footer()
+
+    @staticmethod
+    def _keys_text() -> Text:
+        text = Text()
+        for key, action in KEYS:
+            text.append(f"{key:<8}", style="bold")
+            text.append(f"{action}\n", style="dim")
+        text.rstrip()
+        return text
 
     def on_mount(self) -> None:
-        self.set_interval(0.25, self.refresh_status)
-        self.set_interval(0.1, self.refresh_fixtures)
-        self.set_interval(0.25, self.query_one(LogPane).drain)
+        for widget_id in ("status", "fixtures", "levels", "keys"):
+            self.query_one(f"#{widget_id}", Static).border_title = widget_id
+        self._timers = [
+            self.set_interval(0.25, self.refresh_status),
+            self.set_interval(0.1, self.refresh_fixtures),
+            self.set_interval(0.25, self.query_one(LogPane).drain),
+        ]
         self.refresh_status()
         self.refresh_fixtures()
+
+    def on_unmount(self) -> None:
+        for timer in self._timers:  # don't let a refresh land on widgets that are already gone
+            timer.stop()
 
     # -- panels ---------------------------------------------------------------
 
@@ -165,7 +192,7 @@ class StargardenApp(App):
             Text(f"bed    {p.audio.current_bed.path.name if p.audio.current_bed else '—'}"),
             Text(f"music  {p.audio.current_music.title if p.audio.current_music else '—'}"),
         ]
-        self.query_one("#status", Static).update(Text("\n").join(lines))
+        self._update("#status", Text("\n").join(lines))
         self.refresh_levels()
 
     def refresh_fixtures(self) -> None:
@@ -185,7 +212,7 @@ class StargardenApp(App):
                     w = int(round(255 * frame[cell.name].intensity))
                     text.append("▮", style=f"rgb({w},{w},{w})")
             text.append(f" {fixture.name}\n")
-        self.query_one("#fixtures", Static).update(text)
+        self._update("#fixtures", text)
 
     def refresh_levels(self) -> None:
         text = Text()
@@ -196,7 +223,13 @@ class StargardenApp(App):
             text.append(f"{marker} {layer:<9} ")
             text.append("█" * filled + "░" * (20 - filled), style="green" if layer is self.selected_layer else "dim")
             text.append(f" {level:.2f}\n")
-        self.query_one("#levels", Static).update(text)
+        self._update("#levels", text)
+
+    def _update(self, selector: str, content: Text) -> None:
+        try:
+            self.query_one(selector, Static).update(content)
+        except NoMatches:
+            pass  # a refresh timer fired while the screen was being torn down
 
     # -- actions --------------------------------------------------------------
 
