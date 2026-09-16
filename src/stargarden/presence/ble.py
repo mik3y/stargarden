@@ -25,7 +25,10 @@ class BlePresenceSource:
             log.warning("ble: no sensors configured; scanner idle")
             return
         log.info("ble: scanning for %d sensor(s)", len(self._sensors))
-        async with BleakScanner(self._on_advertisement, service_uuids=[BTHOME_SERVICE_UUID]):
+        # Unfiltered on purpose: Shelly BLU sensors carry BTHome as *service data*, and a
+        # service_uuids filter on macOS only matches advertised service UUIDs, so it sees nothing.
+        # The handler keeps only advertisements with BTHome service data.
+        async with BleakScanner(self._on_advertisement):
             while True:
                 await asyncio.sleep(3600)
 
