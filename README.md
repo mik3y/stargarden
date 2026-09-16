@@ -63,8 +63,19 @@ A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift wi
 
 * **Fixture types** with their **DMX modes** (built in: `generic` washes, the ADJ Jolt Bar FX2) and the **patch** (fixture → type, mode, DMX address) are declared in config. A mode exposes **cells** — the fixture's light-emitting sub-units with positions — and channels carrying GDTF-named attributes; the engine sets per-cell state and the renderer resolves shared (master) dimmers and strobes. Vocabulary: `docs/lighting-concepts.md`.
 * **Themes** are small Python classes registered by name; ambient themes are weighted-random selected and rotate slowly, show themes are selected per the music manifest.
-* **Lightning** is an overlay available only when strobe-capable fixtures are patched and the active theme allows it; rare, with a configured minimum interval.
+* **Overlays** rewrite the per-cell frames on top of the theme while active; lightning is the first.
 * Drivers: `enttec_pro` (real hardware), `console` (virtual fixture swatches in the TUI), `null`.
+
+### Lightning
+
+A layer of its own, independent of the themes (`lightning.py`). Strikes arrive at random — about one per `mean_interval_s` (20 minutes by default), never closer than `min_interval_s`, and only in the configured program states (`PRESENCE` by default, so an empty forest stays calm). Each strike is composed fresh from the RNG:
+
+* an **origin**: one of the fixtures, never the same tree twice in a row;
+* an optional faint **leader** flicker, then 1–3 **primary** flashes at the origin (40–120 ms, white cells at full, sometimes with the hardware strobe engaged for crackle);
+* a **ripple**: every other fixture repeats each flash later and dimmer with distance (fixtures without white cells push their color toward white instead), then a short afterglow at the origin;
+* **thunder** after 0.3–2.5 s, one of the manifest's `[[thunder]]` sounds (never the same one twice in a row), louder for short delays, panned to the origin and rolling slightly toward the center of the space.
+
+Sound and light land in the same place because fixtures and speakers share one coordinate space: fixture `position` and `audio.speakers` are both points on the compass square (x −1 left … 1 right, y −1 rear … 1 front). Speaker positions default to the four corners in output order; swapping cables means swapping two entries.
 
 ### Presence detection
 
@@ -98,7 +109,7 @@ Development target: macOS laptop, no hardware — stereo audio out, simulated fi
 
 ## Configuration & assets
 
-`config.toml` holds machine/site specifics: audio device and channel mode, DMX driver and serial port, fixture patch, sensor MACs, lat/long and schedule offsets, timers, duck levels.
+`config.toml` holds machine/site specifics: audio device, channel mode and speaker positions, DMX driver and serial port, fixture patch, sensor MACs, lat/long and schedule offsets, timers, duck levels, lightning odds.
 
 Audio assets live **outside the repo** in a configurable assets directory (deployed via rsync; the repo carries only tiny test sounds for development):
 
@@ -107,6 +118,7 @@ assets/
   manifest.toml     # beds, discrete pools (weights, spatial behavior), music playlist
   beds/             # stereo ambience loops
   discretes/        # mono one-shots
+  discretes/thunder/  # thunder for lightning strikes
   music/            # curated show tracks
 ```
 
@@ -132,7 +144,7 @@ override so it is always "night". Console keys:
 | `0` `1` `2` `3` | force OFF / AMBIENT / PRESENCE / SHOW |
 | `r` | release the forced state |
 | `n` | toggle day/night override |
-| `l` / `s` | fire a lightning flash / a discrete sound |
+| `l` / `s` | trigger a lightning strike / a discrete sound |
 | `d` | toggle DEBUG-level logging in the log pane |
 | `tab`, `[`, `]` | select a layer, nudge its level |
 | `q` | quit |
@@ -151,6 +163,7 @@ src/stargarden/
   config.py       config.toml → dataclasses
   manifest.py     assets/manifest.toml → beds, discretes, music
   scheduler.py    sunset/sunrise via astral
+  lightning.py    strike composition, scheduling, thunder
   presence/       occupancy model, BTHome parser, bleak scanner
   lighting/       fixtures & patch, themes, render engine, DMX drivers
   audio/          decoders, quad panner, streaming sources, mixer, backends, engine

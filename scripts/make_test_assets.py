@@ -81,6 +81,14 @@ def flap() -> np.ndarray:
     return np.concatenate(parts)[:, None].astype(np.float32) * 0.6
 
 
+def rumble(seconds: float) -> np.ndarray:
+    n = int(seconds * RATE)
+    t = np.arange(n) / RATE
+    body = lowpass_noise(n, 120, RATE)
+    env = np.exp(-t / 1.6) * np.minimum(1.0, t / 0.05) * (1.0 + 0.5 * np.sin(2 * math.pi * 0.7 * t))
+    return (body * env)[:, None].astype(np.float32) * 0.9
+
+
 def music(seconds: float, root: float) -> np.ndarray:
     chords = [[1, 5 / 4, 3 / 2], [9 / 8, 4 / 3, 5 / 3], [5 / 6, 1, 5 / 4], [3 / 4, 1, 3 / 2]]
     beat = 0.5
@@ -110,6 +118,11 @@ def main() -> None:
     write_wav(ROOT / "discretes" / "flap.wav", flap())
     write_wav(ROOT / "music" / "drift.wav", music(45, 220))
     write_wav(ROOT / "music" / "lantern.wav", music(40, 165))
+    thunder_dir = ROOT / "discretes" / "thunder"
+    thunder = sorted(p for p in thunder_dir.glob("*") if p.suffix.lower() in (".wav", ".flac", ".ogg", ".mp3"))
+    if not thunder:  # nothing real dropped in yet: a synthesized rumble stands in
+        write_wav(thunder_dir / "rumble.wav", rumble(6.0))
+        thunder = [thunder_dir / "rumble.wav"]
     (ROOT / "manifest.toml").write_text(
         """# Synthesized stand-in content (see scripts/make_test_assets.py).
 
@@ -142,6 +155,7 @@ theme = "aurora"
 file = "music/lantern.wav"
 title = "Lantern"
 """
+        + "".join(f'\n[[thunder]]\nfile = "{p.relative_to(ROOT).as_posix()}"\n' for p in thunder)
     )
     print(f"wrote {ROOT.relative_to(ROOT.parent) / 'manifest.toml'}")
 

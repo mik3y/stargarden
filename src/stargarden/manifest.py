@@ -51,6 +51,10 @@ class Manifest:
     beds: tuple[BedEntry, ...]
     discretes: tuple[DiscreteEntry, ...]
     music: tuple[MusicEntry, ...]
+    thunder: tuple[DiscreteEntry, ...] = ()
+
+    def pick_thunder(self, rng: random.Random, avoid: DiscreteEntry | None = None) -> DiscreteEntry | None:
+        return _weighted_pick(rng, self.thunder, avoid)
 
     def pick_bed(self, rng: random.Random, avoid: BedEntry | None = None) -> BedEntry | None:
         return _weighted_pick(rng, self.beds, avoid)
@@ -98,6 +102,10 @@ def load_manifest(root: Path) -> Manifest:
         music = tuple(
             MusicEntry(**{"title": m.get("file", ""), **_entry(root, m, f"music[{i}]")}) for i, m in enumerate(raw.get("music", []))
         )
+        thunder = tuple(
+            DiscreteEntry(**{**_entry(root, d, f"thunder[{i}]"), "motion": DiscreteMotion(d.get("motion", "static"))})
+            for i, d in enumerate(raw.get("thunder", []))
+        )
     except (TypeError, ValueError) as e:
         raise ManifestError(f"{manifest_path}: {e}") from None
-    return Manifest(root=root, beds=beds, discretes=discretes, music=music)
+    return Manifest(root=root, beds=beds, discretes=discretes, music=music, thunder=thunder)

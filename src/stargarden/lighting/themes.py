@@ -18,7 +18,6 @@ class Theme:
     gradient of what its neighbors would show."""
 
     name: str
-    lightning_ok: bool
 
     def color(self, index: float, count: int, t: float) -> RGB:
         raise NotImplementedError
@@ -36,7 +35,6 @@ class DriftTheme(Theme):
     brightness: float = 0.85
     breathe_period_s: float = 37.0
     breathe_depth: float = 0.15
-    lightning_ok: bool = False
 
     def color(self, index: float, count: int, t: float) -> RGB:
         return sample_palette(self.palette, t / self.period_s + index * self.spread)
@@ -53,7 +51,6 @@ AMBIENT_THEMES: dict[str, Theme] = {
         DriftTheme(
             "moonlit",
             ((0.05, 0.15, 0.60), (0.00, 0.40, 0.50), (0.35, 0.45, 0.80), (0.15, 0.05, 0.50)),
-            lightning_ok=True,
         ),
         DriftTheme(
             "deep-forest",
@@ -69,7 +66,6 @@ AMBIENT_THEMES: dict[str, Theme] = {
         DriftTheme(
             "violet-hour",
             ((0.40, 0.10, 0.70), (0.70, 0.20, 0.40), (0.15, 0.05, 0.50), (0.10, 0.20, 0.60)),
-            lightning_ok=True,
         ),
     )
 }

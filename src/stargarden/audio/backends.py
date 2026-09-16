@@ -8,7 +8,7 @@ from collections.abc import Callable
 import numpy as np
 
 from ..config import AudioConfig, AudioMode
-from .panner import fold_to_stereo
+from .panner import SpeakerLayout, fold_to_stereo
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ class SounddeviceBackend(AudioBackend):
         self._sd = sd
         self._cfg = cfg
         self._channels = 4 if cfg.mode is AudioMode.QUAD else 2
+        self._layout = SpeakerLayout(cfg.speakers)
         self._device = self._resolve_device(cfg.device)
         self._stream = None
 
@@ -90,7 +91,7 @@ class SounddeviceBackend(AudioBackend):
             if status:
                 log.warning("audio: %s", status)
             quad = render(frames)
-            outdata[:] = fold_to_stereo(quad) if fold else quad
+            outdata[:] = fold_to_stereo(quad) if fold else self._layout.to_outputs(quad)
 
         self._stream = self._sd.OutputStream(
             samplerate=self._cfg.samplerate,

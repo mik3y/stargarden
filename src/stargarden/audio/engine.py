@@ -106,13 +106,30 @@ class AudioEngine:
         entry = entry or self.manifest.pick_discrete(self._rng)
         if entry is None:
             return False
-        clip = self._clip(entry.path)
-        duration = len(clip) / self.cfg.samplerate
-        trajectory = self._trajectory(entry.motion, duration)
-        voice = Voice(f"discrete:{entry.path.stem}", ClipSource(clip), PointPan(trajectory), self.cfg.samplerate, gain=entry.gain)
-        self.mixer.add(Layer.DISCRETES, voice)
+        self.play_discrete(entry, self._trajectory(entry.motion, self._duration(entry)))
         log.info("audio: %s (%s)", entry.path.name, entry.motion)
         return True
+
+    def play_thunder(self, entry: DiscreteEntry, origin: tuple[float, float], gain: float = 1.0) -> None:
+        """Thunder starts at the strike and rolls a little toward the center of the space."""
+        x0, y0 = origin
+        duration = self._duration(entry)
+
+        def roll(t: float) -> tuple[float, float]:
+            k = 1.0 - 0.4 * min(1.0, t / duration)
+            return x0 * k, y0 * k
+
+        self.play_discrete(entry, roll, gain)
+        log.info("audio: thunder %s at (%.1f, %.1f), gain %.2f", entry.path.name, x0, y0, gain)
+
+    def play_discrete(self, entry: DiscreteEntry, trajectory: Trajectory, gain: float = 1.0) -> Voice:
+        clip = self._clip(entry.path)
+        voice = Voice(f"discrete:{entry.path.stem}", ClipSource(clip), PointPan(trajectory), self.cfg.samplerate, gain=entry.gain * gain)
+        self.mixer.add(Layer.DISCRETES, voice)
+        return voice
+
+    def _duration(self, entry: DiscreteEntry) -> float:
+        return len(self._clip(entry.path)) / self.cfg.samplerate
 
     def _trajectory(self, motion: DiscreteMotion, duration: float) -> Trajectory:
         rng = self._rng

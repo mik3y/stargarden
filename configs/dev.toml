@@ -27,10 +27,6 @@ max_interval_s = 25
 driver = "console"
 fps = 30
 
-[lighting.lightning]
-mean_interval_s = 90
-min_interval_s = 30
-
 [[lighting.fixtures]]
 name = "tree-nw"
 type = "generic"
@@ -65,6 +61,11 @@ type = "jolt_bar_fx2"
 mode = "38ch"  # set the same mode on the bar's menu
 address = 21
 position = [0.0, 1.0]
+
+[lightning]
+mean_interval_s = 120  # dev: storms every couple of minutes while someone is on the platform
+min_interval_s = 30
+thunder_delay_s = [0.3, 2.5]
 
 [presence]
 source = "simulated"

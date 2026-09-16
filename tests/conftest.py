@@ -51,6 +51,8 @@ motion = "flyby"
 file = "music/song.wav"
 title = "Song"
 theme = "aurora"
+[[thunder]]
+file = "discretes/ping.wav"
 """
     )
     return root

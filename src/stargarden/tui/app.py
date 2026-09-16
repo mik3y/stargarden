@@ -188,6 +188,10 @@ class StargardenApp(App):
             Text(f"show   in {_fmt_seconds(c.time_to_show())}; #{c.shows_this_visit} this visit"),
             Text(""),
             Text(f"lights {p.lighting.theme.name} via {p.lighting.driver.name}, master {p.lighting.master():.2f}"),
+            Text(
+                f"storm  next strike in {_fmt_seconds(p.lightning.time_to_next())}"
+                + ("" if p.lightning_allowed() else " (held: not in presence)")
+            ),
             Text(f"audio  {p.audio.backend.name}, {p.config.audio.mode} @ {p.config.audio.samplerate} Hz"),
             Text(f"bed    {p.audio.current_bed.path.name if p.audio.current_bed else '—'}"),
             Text(f"music  {p.audio.current_music.title if p.audio.current_music else '—'}"),
@@ -246,7 +250,7 @@ class StargardenApp(App):
         self.program.set_night_override(not self.program.conductor.night)
 
     def action_lightning(self) -> None:
-        self.program.lighting.trigger_lightning()
+        self.program.lightning.strike()
 
     def action_discrete(self) -> None:
         self.program.audio.fire_discrete()

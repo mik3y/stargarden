@@ -7,10 +7,11 @@ import random
 
 from .audio import AudioEngine
 from .conductor import Conductor, State
-from .config import Config, SensorRole
+from .config import Config, ConfigError, SensorRole
 from .lighting import LightingEngine, Patch
 from .lighting.drivers import make_driver
 from .lighting.themes import Theme, get_theme, pick_ambient, pick_show
+from .lightning import Lightning
 from .manifest import Manifest, MusicEntry
 from .presence import OccupancyModel
 from .scheduler import SunSchedule
@@ -33,6 +34,12 @@ class Stargarden:
         self.patch = Patch.from_config(config.lighting)
         self.lighting = LightingEngine(self.patch, make_driver(config.lighting), config.lighting, pick_ambient(self.rng), self.rng)
         self.audio = AudioEngine(config.audio, config.discretes, manifest, self.rng, self._track_finished_from_audio_thread)
+        unknown = set(config.lightning.states) - {s.value for s in State}
+        if unknown:
+            raise ConfigError(f"lightning.states: unknown states {sorted(unknown)}")
+        self.lightning = Lightning(
+            config.lightning, self.patch, self.lighting, self.audio, manifest, self.rng, allowed=self.lightning_allowed
+        )
         self.ambient_theme: Theme = self.lighting.theme
         self.show_theme: Theme | None = None
         self.last_music: MusicEntry | None = None
@@ -52,6 +59,9 @@ class Stargarden:
         self.night_override = night
         self.conductor.set_night(self._is_night())
 
+    def lightning_allowed(self) -> bool:
+        return self.conductor.state.value in self.config.lightning.states
+
     def _is_night(self) -> bool:
         return self.schedule.is_night() if self.night_override is None else self.night_override
 
@@ -61,6 +71,7 @@ class Stargarden:
         coros = [
             self.lighting.run(),
             self.audio.run(),
+            self.lightning.run(),
             self._conductor_loop(),
             self._schedule_loop(),
             self._ambient_theme_loop(),

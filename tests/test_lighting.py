@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from stargarden.config import ConfigError, FixtureConfig, LightingConfig, LightningConfig, ProfileConfig, load_config
+from stargarden.config import ConfigError, FixtureConfig, LightingConfig, ProfileConfig, load_config
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
 from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
@@ -84,8 +84,8 @@ def test_dev_config_washes_render_unchanged(clock) -> None:
     assert bar[29:38] == bytes(9)
 
 
-def test_engine_fades_and_lightning(clock) -> None:
-    cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("sky", "generic", "rgb_strobe", 10), lightning=LightningConfig(enabled=False))
+def test_engine_fades(clock) -> None:
+    cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("sky", "generic", "rgb_strobe", 10))
     patch = Patch.from_config(cfg)
     engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
     assert engine.frame(clock())[0]["cell"].intensity == 0.0  # master starts dark
@@ -104,13 +104,6 @@ def test_engine_fades_and_lightning(clock) -> None:
     clock.advance(30)
     engine.frame(clock())
     assert engine._prev_theme is None
-
-    engine.trigger_lightning()
-    clock.advance(0.06)
-    frames = engine.frame(clock())
-    assert frames[1]["cell"].strobe == 1.0 and frames[0]["cell"].strobe == 0.0
-    clock.advance(5)
-    assert engine.frame(clock())[1]["cell"].strobe == 0.0
 
 
 # -- ADJ Jolt Bar FX2 -------------------------------------------------------------
@@ -178,22 +171,6 @@ def test_jolt_bar_fx2_zoned_modes() -> None:
     assert out[19:22] == bytes([102, 102, 255])
     assert out[23:25] == bytes([128, 0]) and out[25:28] == bytes([0, 0, 0])
     assert out[30:32] == bytes([191, 255]) and out[32:35] == bytes([0, 0, 0])
-
-
-def test_engine_lightning_flashes_white_cells_only(clock) -> None:
-    cfg = make_cfg(fx("bar", "jolt_bar_fx2", "38ch", 1), lightning=LightningConfig(enabled=False))
-    engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
-    engine.fade_master(1.0, 0.0)
-    clock.advance(1)
-    before = engine.frame(clock())[0]
-    assert all(before[f"w{j}"].intensity == 0.0 for j in range(1, 5))
-    engine.trigger_lightning()
-    clock.advance(0.06)
-    during = engine.frame(clock())[0]
-    assert all(during[f"w{j}"].intensity == 1.0 and during[f"w{j}"].strobe == 1.0 for j in range(1, 5))
-    assert during["rgb1"].strobe == 0.0
-    drift = max(abs(a - b) for a, b in zip(during["rgb1"].color, before["rgb1"].color, strict=True))
-    assert drift < 0.01  # the color program carries on underneath
 
 
 def test_engine_renders_bar_as_two_row_gradient(clock) -> None:

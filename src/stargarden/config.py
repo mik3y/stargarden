@@ -56,6 +56,9 @@ class AudioLevels:
     music: float = 0.9
 
 
+QUAD_CORNERS: tuple[tuple[float, float], ...] = ((-1.0, 1.0), (1.0, 1.0), (-1.0, -1.0), (1.0, -1.0))  # FL, FR, RL, RR
+
+
 @dataclass(frozen=True)
 class AudioConfig:
     backend: str = "auto"  # auto | sounddevice | null
@@ -63,6 +66,9 @@ class AudioConfig:
     mode: AudioMode = AudioMode.QUAD
     samplerate: int = 48000
     blocksize: int = 1024
+    # where each output channel's speaker stands, in the same compass square as fixture
+    # positions (x: -1 left … 1 right, y: -1 rear … 1 front); reorder to match the cabling
+    speakers: tuple[tuple[float, float], ...] = QUAD_CORNERS
     levels: AudioLevels = field(default_factory=AudioLevels)
     duck_level: float = 0.25
     duck_fade_s: float = 3.0
@@ -87,8 +93,10 @@ class FixtureConfig:
 @dataclass(frozen=True)
 class LightningConfig:
     enabled: bool = True
-    mean_interval_s: float = 600.0
-    min_interval_s: float = 120.0
+    mean_interval_s: float = 1200.0  # strikes arrive at random, this far apart on average
+    min_interval_s: float = 300.0
+    states: tuple[str, ...] = ("presence",)  # program states in which lightning may strike
+    thunder_delay_s: tuple[float, float] = (0.3, 2.5)  # flash → thunder; a short delay is a close strike
 
 
 @dataclass(frozen=True)
@@ -105,7 +113,6 @@ class LightingConfig:
     fps: float = 30.0
     fixtures: tuple[FixtureConfig, ...] = ()
     profiles: dict[str, ProfileConfig] = field(default_factory=dict)
-    lightning: LightningConfig = field(default_factory=LightningConfig)
 
 
 @dataclass(frozen=True)
@@ -132,6 +139,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     discretes: DiscretesConfig = field(default_factory=DiscretesConfig)
     lighting: LightingConfig = field(default_factory=LightingConfig)
+    lightning: LightningConfig = field(default_factory=LightningConfig)
     presence: PresenceConfig = field(default_factory=PresenceConfig)
 
 
@@ -155,6 +163,8 @@ def _coerce(kind: Any, value: Any, where: str) -> Any:
         return (float(value[0]), float(value[1]))
     if kind == tuple[str, ...]:
         return tuple(str(v) for v in value)
+    if kind == tuple[tuple[float, float], ...]:
+        return tuple(_coerce(tuple[float, float], v, f"{where}[{i}]") for i, v in enumerate(value))
     if is_dataclass(kind) and isinstance(value, dict):
         return _fill(kind, value, where)
     return value
@@ -185,7 +195,7 @@ def _table_list(cls: type, items: Any, where: str) -> tuple:
 def load_config(path: Path) -> Config:
     with open(path, "rb") as f:
         raw = tomllib.load(f)
-    known = {"site", "schedule", "timers", "audio", "discretes", "lighting", "presence", "assets"}
+    known = {"site", "schedule", "timers", "audio", "discretes", "lighting", "lightning", "presence", "assets"}
     unknown = sorted(set(raw) - known)
     if unknown:
         raise ConfigError(f"{path}: unknown sections {unknown}")
@@ -193,8 +203,7 @@ def load_config(path: Path) -> Config:
     lighting_raw = dict(raw.get("lighting", {}))
     fixtures = _table_list(FixtureConfig, lighting_raw.pop("fixtures", []), "lighting.fixtures")
     profiles = {name: _fill(ProfileConfig, spec, f"lighting.profiles.{name}") for name, spec in lighting_raw.pop("profiles", {}).items()}
-    lightning = _fill(LightningConfig, lighting_raw.pop("lightning", {}), "lighting.lightning")
-    lighting = replace(_fill(LightingConfig, lighting_raw, "lighting"), fixtures=fixtures, profiles=profiles, lightning=lightning)
+    lighting = replace(_fill(LightingConfig, lighting_raw, "lighting"), fixtures=fixtures, profiles=profiles)
 
     presence_raw = dict(raw.get("presence", {}))
     sensors = _table_list(SensorConfig, presence_raw.pop("sensors", []), "presence.sensors")
@@ -214,5 +223,6 @@ def load_config(path: Path) -> Config:
         audio=_fill(AudioConfig, raw.get("audio", {}), "audio"),
         discretes=_fill(DiscretesConfig, raw.get("discretes", {}), "discretes"),
         lighting=lighting,
+        lightning=_fill(LightningConfig, raw.get("lightning", {}), "lightning"),
         presence=presence,
     )

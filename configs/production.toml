@@ -24,6 +24,12 @@ mode = "quad"
 samplerate = 48000
 blocksize = 1024
 
+# Where each output channel's speaker stands (outputs 1-4 in order), in the same
+# compass square as fixture positions: x -1 left … 1 right, y -1 rear … 1 front.
+# Lightning pans its thunder to the striking fixture's position, so this is what
+# keeps sound and light together; reorder to match the cabling.
+speakers = [[-1.0, 1.0], [1.0, 1.0], [-1.0, -1.0], [1.0, -1.0]]
+
 [audio.levels]
 bed = 0.8
 discretes = 0.7
@@ -47,6 +53,13 @@ type = "jolt_bar_fx2"
 mode = "38ch"  # set the same mode on the bar's menu
 address = 11
 position = [0.0, 1.0]
+
+[lightning]
+enabled = true
+mean_interval_s = 1200  # about one strike per 20 minutes of presence
+min_interval_s = 300
+states = ["presence"]
+thunder_delay_s = [0.3, 2.5]
 
 [presence]
 source = "ble"

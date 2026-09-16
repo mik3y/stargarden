@@ -7,7 +7,7 @@ import pytest
 
 from stargarden.audio.dsp import Fader, LinearResampler
 from stargarden.audio.mixer import Layer, Mixer, PointPan, Spread, Voice
-from stargarden.audio.panner import fold_to_stereo, quad_gains, spread_gains
+from stargarden.audio.panner import SpeakerLayout, fold_to_stereo, quad_gains, spread_gains
 from stargarden.audio.sources import ClipSource, StreamSource
 
 
@@ -28,6 +28,15 @@ def test_fold_to_stereo_shape_and_rear_attenuation() -> None:
     stereo = fold_to_stereo(quad)
     assert stereo.shape == (4, 2)
     assert stereo[0, 0] > stereo[1, 0] > 0 and stereo[1, 1] == 0
+
+
+def test_speaker_layout_reorders_outputs_by_position() -> None:
+    quad = np.array([[1.0, 2.0, 3.0, 4.0]], np.float32)  # FL, FR, RL, RR
+    assert SpeakerLayout().identity and SpeakerLayout().to_outputs(quad).tolist() == [[1, 2, 3, 4]]
+    swapped = SpeakerLayout(((-1, -1), (1, 1), (-1, 1), (1, -1)))  # output 1 is cabled to the rear-left speaker
+    assert swapped.to_outputs(quad).tolist() == [[3, 2, 1, 4]]
+    with pytest.raises(ValueError, match="corners"):
+        SpeakerLayout(((-1, 1), (-1, 1), (-1, -1), (1, -1)))
 
 
 def test_fader_ramps_then_holds() -> None:

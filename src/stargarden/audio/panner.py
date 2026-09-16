@@ -10,6 +10,7 @@ import numpy as np
 
 FRONT_LEFT, FRONT_RIGHT, REAR_LEFT, REAR_RIGHT = range(4)
 CHANNELS = 4
+CORNERS = ((-1.0, 1.0), (1.0, 1.0), (-1.0, -1.0), (1.0, -1.0))  # canonical FL, FR, RL, RR positions
 
 # Stereo simulation of the quad field: rear speakers fold into the front pair
 # a little quieter, coefficients chosen so a centered source keeps its power.
@@ -33,3 +34,20 @@ def spread_gains(rear_amount: float) -> tuple[float, float]:
 
 def fold_to_stereo(quad: np.ndarray) -> np.ndarray:
     return quad @ STEREO_FOLD.T
+
+
+class SpeakerLayout:
+    """Maps the mixer's canonical FL/FR/RL/RR columns onto output channels by
+    where each output's speaker actually stands."""
+
+    def __init__(self, positions: tuple[tuple[float, float], ...] = CORNERS) -> None:
+        if len(positions) != CHANNELS:
+            raise ValueError(f"expected {CHANNELS} speaker positions, got {len(positions)}")
+        # for each output channel, the canonical corner nearest its speaker
+        self.columns = tuple(min(range(CHANNELS), key=lambda c: math.dist(CORNERS[c], pos)) for pos in positions)
+        if len(set(self.columns)) != CHANNELS:
+            raise ValueError(f"speaker positions {positions} do not cover the four corners")
+        self.identity = self.columns == tuple(range(CHANNELS))
+
+    def to_outputs(self, quad: np.ndarray) -> np.ndarray:
+        return quad if self.identity else quad[:, self.columns]
