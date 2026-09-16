@@ -42,7 +42,7 @@ position = [-0.8, 0.8]
 
 [[lighting.fixtures]]
 name = "sky"
-profile = "jolt_bar_fx2_9ch"  # ADJ Jolt Bar FX2, set to 9CH mode on its menu
+profile = "jolt_bar_fx2_38ch"  # ADJ Jolt Bar FX2, set to 38CH mode on its menu
 address = 11
 position = [0.0, 1.0]
 

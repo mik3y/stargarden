@@ -96,13 +96,17 @@ class LightingEngine:
         count = len(self.patch.fixtures)
         states = []
         for i, fixture in enumerate(self.patch.fixtures):
-            if flashing and fixture.has_strobe:
+            profile = fixture.profile
+            if flashing and profile.can_flash and not profile.has_white_unit:
                 states.append(FixtureState(rgb=LIGHTNING_COLOR, intensity=1.0, strobe=1.0))
                 continue
-            n = fixture.profile.rgb_zones
-            zones = tuple(self._color(i + fixture.profile.zone_x(z), count, t, blend) for z in range(n)) if n > 1 else ()
+            n = profile.rgb_zones
+            zones = tuple(self._color(i + profile.zone_x(z), count, t, blend) for z in range(n)) if n > 1 else ()
             rgb = zones[n // 2] if zones else self._color(i, count, t, blend)
-            states.append(FixtureState(rgb=rgb, intensity=self._intensity(i, count, t, blend) * master, zones=zones))
+            state = FixtureState(rgb=rgb, intensity=self._intensity(i, count, t, blend) * master, zones=zones)
+            if flashing and profile.has_white_unit:  # the whites flash; the color program carries on
+                state.white, state.strobe = 1.0, 1.0
+            states.append(state)
         self.last_states = states
         return states
 
@@ -128,7 +132,7 @@ class LightingEngine:
         if now < self._next_lightning:
             return
         self._next_lightning = self._schedule_lightning(now)
-        if self.cfg.lightning.enabled and self.theme.lightning_ok and self.patch.has_strobe and self.master() > 0.5:
+        if self.cfg.lightning.enabled and self.theme.lightning_ok and self.patch.can_flash and self.master() > 0.5:
             self.trigger_lightning()
 
     async def run(self) -> None:

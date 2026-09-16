@@ -138,6 +138,9 @@ class StargardenApp(App):
                 color = zones[z * len(zones) // min(len(zones), SWATCH_WIDTH)]
                 r, g, b = (int(round(255 * min(1.0, ch * state.intensity))) for ch in color)
                 text.append(glyph, style=f"rgb({r},{g},{b})")
+            if fixture.profile.has_white_unit:
+                w = int(round(255 * state.white))
+                text.append(" ▮", style=f"rgb({w},{w},{w})")
             text.append(f" {fixture.name}\n")
         self.query_one("#fixtures", Static).update(text)
 

@@ -28,7 +28,7 @@ def test_patch_render_profiles() -> None:
     assert frame[0:5] == bytes([128, 128, 0, 0, 128])  # dimmer, r-w, g-w, b-w, w
     assert frame[9:12] == bytes([128, 0, 0])  # no dimmer: intensity folded into color
     assert frame[19:23] == bytes([0, 0, 255, 255])
-    assert patch.has_strobe
+    assert patch.can_flash
 
 
 def test_patch_rejects_overlap_and_range() -> None:
@@ -40,17 +40,19 @@ def test_patch_rejects_overlap_and_range() -> None:
         Patch.from_config(make_cfg(FixtureConfig("a", "laser", 1)))
 
 
-def test_jolt_bar_fx2_profiles() -> None:
+def test_jolt_bar_fx2_simple_modes() -> None:
     patch = Patch.from_config(make_cfg(FixtureConfig("bar", "jolt_bar_fx2_9ch", 1), FixtureConfig("bar6", "jolt_bar_fx2_6ch", 10)))
-    assert patch.has_strobe
+    assert patch.can_flash
     idle = patch.render([FixtureState(rgb=(0.2, 0.2, 1.0), intensity=0.5), FixtureState(rgb=(1.0, 1.0, 1.0), intensity=1.0)])
-    # rgb → outer RGB + inner white, 16-bit dimmer, strobe effect open
-    assert idle[0:4] == bytes([0, 0, 204, 51])
+    # color stays on the RGB channels (the white is a separate unit, off), 16-bit dimmer, strobe open
+    assert idle[0:4] == bytes([51, 51, 255, 0])
     assert (idle[4] << 8 | idle[5]) == round(0.5 * 65535)
     assert idle[6:9] == bytes([0, 0, 0])
-    assert idle[9:15] == bytes([0, 0, 0, 255, 255, 255])
-    flashing = patch.render([FixtureState(rgb=(1.0, 1.0, 1.0), intensity=1.0, strobe=1.0), FixtureState()])
+    assert idle[9:15] == bytes([255, 255, 255, 0, 255, 255])
+    flashing = patch.render([FixtureState(rgb=(1.0, 0.0, 0.0), intensity=1.0, strobe=1.0, white=1.0), FixtureState(white=0.5)])
+    assert flashing[0:4] == bytes([255, 0, 0, 255])
     assert flashing[6:9] == bytes([4, 255, 255])  # plain strobe, fastest rate/duration
+    assert flashing[12] == 128  # 6CH: the white channel is the only white control
 
 
 def test_jolt_bar_fx2_all_modes_have_matching_footprints() -> None:
@@ -58,25 +60,38 @@ def test_jolt_bar_fx2_all_modes_have_matching_footprints() -> None:
     assert len(modes) == 17
     for name, profile in modes.items():
         assert profile.footprint == int(name.rsplit("_", 1)[1].removesuffix("ch"))
-        assert profile.zone_rows == 2
+        assert profile.zone_rows == 2 and profile.has_white_unit
+
+
+def test_jolt_bar_fx2_38ch_white_unit() -> None:
+    patch = Patch.from_config(make_cfg(FixtureConfig("bar", "jolt_bar_fx2_38ch", 1)))
+    zones = tuple((z / 8, 0.0, 1.0 - z / 8) for z in range(8))
+    frame = patch.render([FixtureState(rgb=zones[0], intensity=0.5, zones=zones)])
+    assert frame[0:3] == bytes([0, 0, 255]) and frame[21:24] == bytes([223, 0, 32])  # zones 1 and 8, undimmed color
+    assert (frame[24] << 8 | frame[25]) == round(0.5 * 65535)  # outer dimmer carries intensity
+    assert frame[26:29] == bytes([0, 0, 0])  # outer strobe open
+    assert frame[29:33] == bytes([255] * 4)  # white groups pinned full...
+    assert frame[33:35] == bytes([0, 0])  # ...their dimmer carries the (zero) white level
+    assert frame[35:38] == bytes([0, 0, 0])
+    flash = patch.render([FixtureState(rgb=zones[0], intensity=0.5, zones=zones, white=1.0, strobe=1.0)])
+    assert flash[0:3] == bytes([0, 0, 255]) and flash[26:29] == bytes([0, 0, 0])  # color untouched, RGB not strobing
+    assert flash[33:38] == bytes([255, 255, 4, 255, 255])  # whites full and strobing
 
 
 def test_jolt_bar_fx2_zoned_modes() -> None:
     patch = Patch.from_config(make_cfg(FixtureConfig("bar", "jolt_bar_fx2_16ch", 1), FixtureConfig("bar18", "jolt_bar_fx2_18ch", 20)))
     zones = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.5, 0.5, 0.5))
-    frame = patch.render([FixtureState(rgb=zones[0], intensity=0.5, zones=zones), FixtureState()])
-    # 16CH: no dimmer, so intensity folds into the four RGB zones...
-    assert frame[0:12] == bytes([128, 0, 0, 0, 128, 0, 0, 0, 128, 0, 0, 0])
-    assert frame[12:16] == bytes([0, 0, 0, 0])
-    # ...and the four whites follow the top-row zones above them (zones 1 and 2)
-    frame = patch.render([FixtureState(rgb=zones[3], intensity=1.0, zones=(zones[3], zones[0], zones[1], zones[2])), FixtureState()])
-    assert frame[12:16] == bytes([128, 128, 0, 0])
-    # 18CH: 16-bit outer dimmer at intensity, inner dimmer carries the white component
-    frame = patch.render([FixtureState(), FixtureState(rgb=(0.4, 0.4, 1.0), intensity=0.5)])
-    assert frame[19:22] == bytes([0, 0, 153])  # rgb minus white
+    frame = patch.render(
+        [FixtureState(rgb=zones[0], intensity=0.5, zones=zones, white=0.25), FixtureState(rgb=(0.4, 0.4, 1.0), intensity=0.5, white=0.75)]
+    )
+    # 16CH: no dimmer, so intensity folds into the four RGB zones; the whites carry the white level
+    assert frame[0:12] == bytes([128, 0, 0, 0, 128, 0, 0, 0, 128, 64, 64, 64])
+    assert frame[12:16] == bytes([64] * 4)
+    # 18CH: 16-bit outer dimmer at intensity, the white dimmer at the white level, both strobes open
+    assert frame[19:22] == bytes([102, 102, 255])
     assert (frame[23] << 8 | frame[24]) == round(0.5 * 65535)
-    assert (frame[30] << 8 | frame[31]) == round(0.4 * 0.5 * 65535)
-    assert frame[25:28] == bytes([0, 0, 0]) and frame[32:35] == bytes([0, 0, 0])  # both strobes open
+    assert (frame[30] << 8 | frame[31]) == round(0.75 * 65535)
+    assert frame[25:28] == bytes([0, 0, 0]) and frame[32:35] == bytes([0, 0, 0])
 
 
 def test_custom_profile() -> None:
@@ -126,6 +141,21 @@ def test_engine_fades_and_lightning(clock) -> None:
     assert states[1].strobe == 1.0 and states[0].strobe == 0.0
     clock.advance(5)
     assert engine.frame(clock())[1].strobe == 0.0
+
+
+def test_engine_lightning_flashes_white_unit_only(clock) -> None:
+    cfg = make_cfg(FixtureConfig("bar", "jolt_bar_fx2_38ch", 1), lightning=LightningConfig(enabled=False))
+    engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
+    engine.fade_master(1.0, 0.0)
+    clock.advance(1)
+    before = engine.frame(clock())[0]
+    assert before.white == 0.0 and before.strobe == 0.0
+    engine.trigger_lightning()
+    clock.advance(0.06)
+    during = engine.frame(clock())[0]
+    assert during.white == 1.0 and during.strobe == 1.0
+    drift = max(abs(a - b) for za, zb in zip(during.zones, before.zones, strict=True) for a, b in zip(za, zb, strict=True))
+    assert drift < 0.01  # the color program carries on underneath
 
 
 def test_engine_renders_zoned_bar_as_two_row_gradient(clock) -> None:

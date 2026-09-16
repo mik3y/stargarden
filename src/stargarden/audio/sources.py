@@ -71,6 +71,7 @@ class StreamSource(Source):
         self._eof = False
         self._finished = False
         self._underrun_logged = False
+        self.underrun_frames = 0  # silence emitted because the decoder fell behind
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._fill, name=f"decode:{path.name}", daemon=True)
         self._thread.start()
@@ -125,7 +126,9 @@ class StreamSource(Source):
         n = min(frames, len(self._pending))
         out[:n] = self._pending[:n]
         self._pending = self._pending[n:]
-        if self._eof and len(self._pending) == 0:
+        if not self._eof:
+            self.underrun_frames += frames - n
+        elif len(self._pending) == 0:
             self._finished = True
         return out
 

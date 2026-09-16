@@ -4,8 +4,13 @@ rendering of per-fixture state into a DMX universe.
 A profile is a tuple of channel roles in DMX order. Roles the renderer knows
 are listed below; anything else ("color_macro", "ct_preset", ...) is emitted as
 0 so the fixture stays in plain color mode. Zoned fixtures (LED bars) use
-indexed roles like "red:3" or "white:7"; a role may appear more than once when
-a fixture duplicates a control block (e.g. outer and inner dimmers).
+indexed roles like "red:3"; a role may appear more than once when a fixture
+duplicates a control block.
+
+Two kinds of white: the plain `white` role is a mixing channel fed from the
+color (RGBW washes), while indexed whites (`white:N`, `white_group:N`) and the
+`white_dimmer`/`white_strobe_*` block are an independent unit — the bar's
+separate white LEDs, driven by `FixtureState.white` and used as our strobes.
 """
 
 import re
@@ -18,15 +23,15 @@ UNIVERSE_SIZE = 512
 
 RED, GREEN, BLUE, WHITE = "red", "green", "blue", "white"
 DIMMER, DIMMER_FINE = "dimmer", "dimmer_fine"  # 8-bit, or 16-bit when both are present
-# A dimmer that is the only control over a fixture's white LEDs: driven by the
-# white component of the color rather than the master intensity.
-INNER_DIMMER, INNER_DIMMER_FINE = "inner_dimmer", "inner_dimmer_fine"
 STROBE = "strobe"  # single channel: 0 = open, else rate slow→fast
 # Effect/rate/duration trio (ADJ style): the effect channel selects plain strobe
 # while flashing and the rate/duration channels carry the intensity of it.
 STROBE_EFFECT, STROBE_RATE, STROBE_DURATION = "strobe_effect", "strobe_rate", "strobe_duration"
 STROBE_EFFECT_OPEN, STROBE_EFFECT_STROBE = 0, 4  # ADJ: 000-002 open, 003-005 strobe
-WHITE_GROUP = "white_group"  # "white_group:N": one white channel per group of zones
+# The independent white unit: zone channels, a dimmer, and its own strobe trio.
+WHITE_GROUP = "white_group"
+WHITE_DIMMER, WHITE_DIMMER_FINE = "white_dimmer", "white_dimmer_fine"
+WHITE_STROBE_EFFECT, WHITE_STROBE_RATE, WHITE_STROBE_DURATION = "white_strobe_effect", "white_strobe_rate", "white_strobe_duration"
 
 _ZONED = re.compile(r"^(red|green|blue|white|white_group):(\d+)$")
 
@@ -53,29 +58,48 @@ def _jolt_bar_fx2_profiles() -> dict[str, FixtureProfile]:
     """
     strobe = (STROBE_EFFECT, STROBE_RATE, STROBE_DURATION)
     dim = (DIMMER, DIMMER_FINE)
-    inner_dim = (INNER_DIMMER, INNER_DIMMER_FINE)
+    white = _zoned(WHITE, 1)  # the single "Inner White" channel, still the independent unit
+    white_dim = (WHITE_DIMMER, WHITE_DIMMER_FINE)
+    white_strobe = (WHITE_STROBE_EFFECT, WHITE_STROBE_RATE, WHITE_STROBE_DURATION)
     program = ("program_macro", "program_speed")
     color_macro = ("color_macro",)
     ct = ("ct_preset", "green_shift")
     groups = _zoned(WHITE_GROUP, 4)
     modes = {
-        "jolt_bar_fx2_6ch": (RED, GREEN, BLUE, WHITE, *dim),
-        "jolt_bar_fx2_9ch": (RED, GREEN, BLUE, WHITE, *dim, *strobe),
-        "jolt_bar_fx2_13ch": (RED, GREEN, BLUE, WHITE, *color_macro, *dim, *strobe, "program_macro", "program_macro", "program_speed"),
+        "jolt_bar_fx2_6ch": (RED, GREEN, BLUE, *white, *dim),
+        "jolt_bar_fx2_9ch": (RED, GREEN, BLUE, *white, *dim, *strobe),
+        "jolt_bar_fx2_13ch": (RED, GREEN, BLUE, *white, *color_macro, *dim, *strobe, "program_macro", "program_macro", "program_speed"),
         "jolt_bar_fx2_16ch": _rgb_zones(4) + _zoned(WHITE, 4),
-        "jolt_bar_fx2_18ch": (RED, GREEN, BLUE, *color_macro, *dim, *strobe, *program, *inner_dim, *strobe, *program),
-        "jolt_bar_fx2_20ch": (RED, GREEN, BLUE, *ct, *color_macro, *dim, *strobe, *program, *inner_dim, *strobe, *program),
+        "jolt_bar_fx2_18ch": (RED, GREEN, BLUE, *color_macro, *dim, *strobe, *program, *white_dim, *white_strobe, *program),
+        "jolt_bar_fx2_20ch": (RED, GREEN, BLUE, *ct, *color_macro, *dim, *strobe, *program, *white_dim, *white_strobe, *program),
         "jolt_bar_fx2_32ch": _rgb_zones(8) + _zoned(WHITE, 8),
         "jolt_bar_fx2_34ch": _rgb_zones(8) + ct + _zoned(WHITE, 8),
-        "jolt_bar_fx2_38ch": _rgb_zones(8) + dim + strobe + groups + dim + strobe,
-        "jolt_bar_fx2_43ch": _rgb_zones(8) + color_macro + dim + strobe + program + groups + dim + strobe + program,
-        "jolt_bar_fx2_45ch": _rgb_zones(8) + ct + color_macro + dim + strobe + program + groups + dim + strobe + program,
+        "jolt_bar_fx2_38ch": _rgb_zones(8) + dim + strobe + groups + white_dim + white_strobe,
+        "jolt_bar_fx2_43ch": _rgb_zones(8) + color_macro + dim + strobe + program + groups + white_dim + white_strobe + program,
+        "jolt_bar_fx2_45ch": _rgb_zones(8) + ct + color_macro + dim + strobe + program + groups + white_dim + white_strobe + program,
         "jolt_bar_fx2_64ch": _rgb_zones(16) + _zoned(WHITE, 16),
-        "jolt_bar_fx2_78ch": _rgb_zones(16) + _zoned(WHITE, 16) + dim + strobe + groups + dim + strobe,
-        "jolt_bar_fx2_80ch": _rgb_zones(16) + ct + _zoned(WHITE, 16) + dim + strobe + groups + dim + strobe,
+        "jolt_bar_fx2_78ch": _rgb_zones(16) + _zoned(WHITE, 16) + dim + strobe + groups + white_dim + white_strobe,
+        "jolt_bar_fx2_80ch": _rgb_zones(16) + ct + _zoned(WHITE, 16) + dim + strobe + groups + white_dim + white_strobe,
         "jolt_bar_fx2_112ch": _rgb_zones(32) + _zoned(WHITE, 16),
-        "jolt_bar_fx2_127ch": _rgb_zones(32) + color_macro + dim + strobe + program + _zoned(WHITE, 16) + dim + strobe + program,
-        "jolt_bar_fx2_129ch": _rgb_zones(32) + ct + color_macro + dim + strobe + program + _zoned(WHITE, 16) + dim + strobe + program,
+        "jolt_bar_fx2_127ch": _rgb_zones(32)
+        + color_macro
+        + dim
+        + strobe
+        + program
+        + _zoned(WHITE, 16)
+        + white_dim
+        + white_strobe
+        + program,
+        "jolt_bar_fx2_129ch": _rgb_zones(32)
+        + ct
+        + color_macro
+        + dim
+        + strobe
+        + program
+        + _zoned(WHITE, 16)
+        + white_dim
+        + white_strobe
+        + program,
     }
     return {name: FixtureProfile(name, channels, zone_rows=2) for name, channels in modes.items()}
 
@@ -118,8 +142,17 @@ class FixtureProfile:
         return self._zone_count(WHITE_GROUP)
 
     @property
+    def has_white_unit(self) -> bool:
+        return bool(self.white_zones or self.white_groups or self.has(WHITE_DIMMER))
+
+    @property
     def has_strobe(self) -> bool:
-        return self.has(STROBE) or self.has(STROBE_EFFECT)
+        return self.has(STROBE) or self.has(STROBE_EFFECT) or self.has(WHITE_STROBE_EFFECT)
+
+    @property
+    def can_flash(self) -> bool:
+        """Usable for lightning: a strobe channel, or white LEDs we can pulse ourselves."""
+        return self.has_strobe or self.has_white_unit
 
 
 BUILTIN_PROFILES: dict[str, FixtureProfile] = {
@@ -142,17 +175,14 @@ class Fixture:
     address: int  # 1-based DMX start address
     position: tuple[float, float] = (0.0, 0.0)
 
-    @property
-    def has_strobe(self) -> bool:
-        return self.profile.has_strobe
-
 
 @dataclass
 class FixtureState:
     rgb: RGB = BLACK
     intensity: float = 1.0
-    strobe: float = 0.0  # 0 = off, otherwise strobe rate 0..1
+    strobe: float = 0.0  # 0 = open, otherwise strobe rate 0..1 (goes to the white unit if there is one)
     zones: tuple[RGB, ...] = ()  # per-zone colors for zoned fixtures; empty = all zones show `rgb`
+    white: float = 0.0  # level of the independent white unit, if the fixture has one
 
 
 class Patch:
@@ -183,8 +213,8 @@ class Patch:
         return len(self.fixtures)
 
     @property
-    def has_strobe(self) -> bool:
-        return any(f.has_strobe for f in self.fixtures)
+    def can_flash(self) -> bool:
+        return any(f.profile.can_flash for f in self.fixtures)
 
     def render(self, states: list[FixtureState]) -> bytes:
         universe = bytearray(UNIVERSE_SIZE)
@@ -203,29 +233,35 @@ class Patch:
         if has_dimmer:
             values.update(_dimmer(DIMMER, DIMMER_FINE, intensity, profile))
 
-        # only pull white out of the color when the fixture has somewhere to put it
         values[RED], values[GREEN], values[BLUE] = _scaled(state.rgb, scale)
-        if profile.has(WHITE) or profile.has(INNER_DIMMER):
+        if profile.has(WHITE):  # mixing white: pull the common component out of the color
             values[RED], values[GREEN], values[BLUE], values[WHITE] = rgb_to_rgbw(_scaled(state.rgb, scale))
-        if profile.has(INNER_DIMMER):
-            values.update(_dimmer(INNER_DIMMER, INNER_DIMMER_FINE, rgb_to_rgbw(state.rgb)[3] * intensity, profile))
 
         n = profile.rgb_zones
         if n:
             colors = state.zones if len(state.zones) == n else (state.rgb,) * n
-            zoned_white = bool(profile.white_zones or profile.white_groups)
-            zones = [rgb_to_rgbw(_scaled(c, scale)) if zoned_white else (*_scaled(c, scale), 0.0) for c in colors]
-            for i, (zr, zg, zb, _) in enumerate(zones, 1):
-                values[f"{RED}:{i}"], values[f"{GREEN}:{i}"], values[f"{BLUE}:{i}"] = zr, zg, zb
-            for role, count in ((WHITE, profile.white_zones), (WHITE_GROUP, profile.white_groups)):
-                for j in range(1, count + 1):
-                    values[f"{role}:{j}"] = zones[_zone_for(j, count, profile.zones_per_row)][3]
+            for i, c in enumerate(colors, 1):
+                values[f"{RED}:{i}"], values[f"{GREEN}:{i}"], values[f"{BLUE}:{i}"] = _scaled(c, scale)
 
-        if profile.has(STROBE):
+        # the independent white unit: its dimmer carries the level when there is one
+        # (16-bit fades), otherwise the zone channels do
+        white = clamp01(state.white)
+        if profile.has(WHITE_DIMMER):
+            values.update(_dimmer(WHITE_DIMMER, WHITE_DIMMER_FINE, white, profile))
+            white_zone_level = 1.0
+        else:
+            white_zone_level = white
+        for role, count in ((WHITE, profile.white_zones), (WHITE_GROUP, profile.white_groups)):
+            for j in range(1, count + 1):
+                values[f"{role}:{j}"] = white_zone_level
+
+        # strobe goes to the white unit's own strobe if it has one, else to the fixture strobe
+        if profile.has(WHITE_STROBE_EFFECT):
+            values.update(_strobe_trio(WHITE_STROBE_EFFECT, WHITE_STROBE_RATE, WHITE_STROBE_DURATION, state.strobe))
+        elif profile.has(STROBE_EFFECT):
+            values.update(_strobe_trio(STROBE_EFFECT, STROBE_RATE, STROBE_DURATION, state.strobe))
+        elif profile.has(STROBE):
             values[STROBE] = state.strobe
-        if profile.has(STROBE_EFFECT):
-            values[STROBE_EFFECT] = (STROBE_EFFECT_STROBE if state.strobe > 0 else STROBE_EFFECT_OPEN) / 255
-            values[STROBE_RATE] = values[STROBE_DURATION] = state.strobe
         return values
 
 
@@ -240,9 +276,9 @@ def _dimmer(coarse: str, fine: str, level: float, profile: FixtureProfile) -> di
     return {coarse: hi / 255, fine: lo / 255}
 
 
-def _zone_for(j: int, count: int, per_row: int) -> int:
-    """First-row RGB zone (0-based) at the center of white zone/group j (1-based) of `count`."""
-    return min(per_row - 1, int((j - 0.5) * per_row / count))
+def _strobe_trio(effect: str, rate: str, duration: str, strobe: float) -> dict[str, float]:
+    mode = STROBE_EFFECT_STROBE if strobe > 0 else STROBE_EFFECT_OPEN
+    return {effect: mode / 255, rate: strobe, duration: strobe}
 
 
 def _byte(x: float) -> int:

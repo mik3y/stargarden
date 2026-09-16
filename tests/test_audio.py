@@ -64,15 +64,15 @@ def test_clip_source_loops_and_finishes() -> None:
 
 def test_stream_source_reads_wav_and_resamples(assets: Path) -> None:
     src = StreamSource(assets / "music" / "song.wav", 48000, loop=False, blocksize=512)
-    time.sleep(0.05)  # let the decode thread fill the queue
     total = 0
-    for _ in range(200):
+    deadline = time.monotonic() + 5
+    while not src.finished and time.monotonic() < deadline:
         src.read(256)
         total += 256
-        if src.finished:
-            break
+        time.sleep(0.001)  # don't outrun the decoder; underruns are counted, not decoded audio
     assert src.finished
-    assert abs(total - 4800 * 48000 / 44100) < 600  # length converted to 48k, within a block or two
+    decoded = total - src.underrun_frames
+    assert abs(decoded - 4800 * 48000 / 44100) < 300  # length converted to 48k, within a block
     src.close()
 
     looped = StreamSource(assets / "beds" / "bed.wav", 48000, loop=True, blocksize=512)
