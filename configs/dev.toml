@@ -29,6 +29,7 @@ max_interval_s = 25
 driver = "enttec_open"  # "console" for no hardware at all
 port = "auto"  # or pin it, e.g. "/dev/cu.usbserial-B000E5T5"
 fps = 30
+peak = 1.0  # brightness ceiling for the themes; tab to "peak" in the console and nudge with [ ]
 
 [[lighting.fixtures]]
 name = "tree-nw"

@@ -36,6 +36,11 @@ def test_defaults_and_unknown_keys(tmp_path: Path) -> None:
     assert cfg.timers.show_delay_s == 5.0
     assert cfg.timers.show_repeat_delay_s == 900.0
     assert cfg.presence.vacancy_timeout_s == 900.0
+    assert cfg.lighting.peak == 1.0
+
+    path.write_text("[lighting]\npeak = 1.5\n")
+    with pytest.raises(ConfigError, match="lighting.peak"):
+        load_config(path)
 
     path.write_text("[timers]\nshow_dely_s = 5\n")
     with pytest.raises(ConfigError, match="unknown keys"):

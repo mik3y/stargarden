@@ -86,6 +86,29 @@ def test_dev_config_washes_render_unchanged(clock) -> None:
     assert bar[29:38] == bytes(9)
 
 
+def test_peak_caps_themes_but_not_lightning(clock) -> None:
+    from stargarden.lightning import StrikeOverlay, compose_strike
+
+    cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("sky", "jolt_bar_fx2", "38ch", 10), peak=0.5)
+    patch = Patch.from_config(cfg)
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
+    engine.fade_master(1.0, 0.0)
+    clock.advance(1)
+    half = engine.frame(clock())[0]["cell"].intensity
+    engine.set_peak(1.0)
+    assert engine.frame(clock())[0]["cell"].intensity == pytest.approx(half * 2)
+    assert engine.nudge_peak(-0.3) == pytest.approx(0.7) and engine.nudge_peak(-2.0) == 0.0
+    assert engine.frame(clock())[0]["cell"].intensity == 0.0
+
+    engine.set_peak(0.2)
+    strike = compose_strike(random.Random(5), {"a": (-0.8, 0.8), "sky": (0.8, 0.8)}, "sky", (0.3, 2.5))
+    engine.add_overlay(StrikeOverlay(strike, clock()))
+    clock.advance(next(f.start for f in strike.flashes["sky"] if f.level == 1.0) + 0.01)
+    frames = engine.frame(clock())
+    assert frames[1]["w1"].intensity == 1.0  # the flash ignores the peak
+    assert frames[1]["rgb1"].intensity <= 0.2
+
+
 def test_engine_fades(clock) -> None:
     cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("sky", "generic", "rgb_strobe", 10))
     patch = Patch.from_config(cfg)

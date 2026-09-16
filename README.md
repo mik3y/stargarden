@@ -36,7 +36,7 @@ Transitions:
 * **DMX out via Enttec Open DMX USB.** The widget is a bare FTDI UART with no DMX engine, so we generate the signal ourselves: a transmitter thread streams the latest universe back to back over `pyserial` at 250 kbaud 8N2, producing each frame's break and mark-after-break with the port's break line. The render loop just swaps in new frames at ~30 Hz, and the wire stays alive (holding the last look) even if the loop stalls. The driver is behind a small interface; the DMX USB Pro (which has its own engine and takes snapshots over its framed protocol) is also supported, and other adapters (or sACN) can be added later.
 * **Audio via `sounddevice` (PortAudio) with our own mixer.** A numpy mixing engine renders N layers → per-layer gain → 4-speaker panning, at 48 kHz float32. Quad mode maps FL/FR/RL/RR to outputs 1–4 of a class-compliant USB interface; stereo mode (developer MacBooks) folds the rear channels down with attenuation so spatial effects remain audible.
 * **Presence via `bleak` passive BLE scanning.** Two Shelly Blu Motion sensors (platform + walkway) broadcasting **unencrypted** BTHome v2 advertisements; no pairing, no bindkeys. Encryption support can be added later if needed.
-* **TUI via Textual.** Logs, state display/override, per-layer volume, and (in dev) simulated fixtures and motion injection.
+* **TUI via Textual.** Logs, state display/override, per-layer volume and lighting peak, and (in dev) simulated fixtures and motion injection.
 * **Scheduling via `astral`.** Sunset/sunrise computed from configured lat/long drives `OFF ↔ AMBIENT`.
 * **Config is TOML** (`stdlib tomllib`): a program config plus an assets manifest.
 * **Fully offline in the field.** No network dependency at runtime. Deploys happen by visiting the Pi (rsync over direct link/hotspot). Because the sunset schedule depends on wall-clock time, the production Pi should carry an RTC module (e.g. DS3231); `fake-hwclock` alone drifts across power-offs.
@@ -59,7 +59,7 @@ Files are decoded with `soundfile` (WAV/FLAC/OGG/MP3). Beds and music are stream
 
 ### Lighting engine
 
-A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift within a palette, per-fixture phase offsets so the trees don't move in unison) with optional **overlays** (lightning strobe, show-mode intensity), then writes the universe to the DMX driver.
+A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift within a palette, per-fixture phase offsets so the trees don't move in unison), scaled by the program's master fade and a standing **peak** ceiling (`lighting.peak`, default 1.0; nudged live from the console for softer light on real fixtures), with optional **overlays** (lightning strobe, show-mode intensity) applied on top and exempt from the peak, then writes the universe to the DMX driver.
 
 * **Fixture types** with their **DMX modes** (built in: `generic` washes, the ADJ Jolt Bar FX2) and the **patch** (fixture → type, mode, DMX address) are declared in config. A mode exposes **cells** — the fixture's light-emitting sub-units with positions — and channels carrying GDTF-named attributes; the engine sets per-cell state and the renderer resolves shared (master) dimmers and strobes. Vocabulary: `docs/lighting-concepts.md`.
 * **Themes** are small Python classes registered by name; ambient themes are weighted-random selected and rotate slowly, show themes are selected per the music manifest.
@@ -148,7 +148,7 @@ hardware entirely), simulated presence, and a schedule override so it is always
 | `n` | toggle day/night override |
 | `l` / `s` | trigger a lightning strike / a discrete sound |
 | `d` | toggle DEBUG-level logging in the log pane |
-| `tab`, `[`, `]` | select a layer, nudge its level |
+| `tab`, `[`, `]` | select an audio layer or the lighting peak, nudge it |
 | `q` | quit |
 
 Show timers are seconds in `configs/dev.toml` (`show_delay_s = 45`), so a full

@@ -1,7 +1,10 @@
-"""Lighting render loop: theme (with crossfades) × master fade, then overlays → DMX.
+"""Lighting render loop: theme (with crossfades) × master fade × peak, then overlays → DMX.
 
-An overlay (e.g. a lightning strike) rewrites the per-cell frames for as long
-as it is active; the engine drops it once `finished`.
+The master is the program's fade (up in ambient, out for shows and at close);
+the peak is a standing ceiling on how bright the themes get, for softer light
+on real fixtures. An overlay (e.g. a lightning strike) rewrites the per-cell
+frames for as long as it is active, on top of both; the engine drops it once
+`finished`.
 """
 
 import asyncio
@@ -62,6 +65,7 @@ class LightingEngine:
         self._prev_theme: Theme | None = None
         self._theme_fade: _Ramp | None = None
         self._master = _Ramp(0.0, 0.0, 0.0, 0.0)
+        self.peak = cfg.peak
         self._overlays: list[Overlay] = []
         self.last_frames: list[FixtureFrame] = [self._blackout(f) for f in patch.fixtures]
 
@@ -83,6 +87,14 @@ class LightingEngine:
     def master(self) -> float:
         return self._master.at(self._clock())
 
+    def set_peak(self, peak: float) -> None:
+        self.peak = min(1.0, max(0.0, peak))
+        log.info("lighting: peak %.2f", self.peak)
+
+    def nudge_peak(self, delta: float) -> float:
+        self.set_peak(self.peak + delta)
+        return self.peak
+
     def add_overlay(self, overlay: Overlay) -> None:
         self._overlays.append(overlay)
 
@@ -96,7 +108,7 @@ class LightingEngine:
         return {cell.name: CellState(intensity=0.0) for cell in fixture.mode.cells}
 
     def frame(self, t: float) -> list[FixtureFrame]:
-        master = self._master.at(t)
+        level = self._master.at(t) * self.peak
         blend = self._theme_fade.at(t) if self._theme_fade else 1.0
         if blend >= 1.0:
             self._prev_theme, self._theme_fade = None, None
@@ -109,7 +121,7 @@ class LightingEngine:
                     frame[cell.name] = CellState(intensity=0.0)  # whites belong to overlays (lightning)
                 else:
                     index = i + cell.position[0] - 0.5  # cells spread the neighbor-to-neighbor drift across the fixture
-                    frame[cell.name] = CellState(self._color(index, count, t, blend), self._intensity(index, count, t, blend) * master)
+                    frame[cell.name] = CellState(self._color(index, count, t, blend), self._intensity(index, count, t, blend) * level)
             frames.append(frame)
         self._overlays = [o for o in self._overlays if not o.finished(t)]
         for overlay in self._overlays:

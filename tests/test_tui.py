@@ -42,6 +42,10 @@ async def test_console_keys_drive_program(tmp_path, assets) -> None:
             assert program.conductor.forced is None and program.conductor.state is State.OFF
             await pilot.press("tab", "right_square_bracket")
             assert program.audio.level(Layer.DISCRETES) == pytest.approx(0.75)
+            await pilot.press("tab", "tab", "left_square_bracket")  # past music to the lighting peak
+            assert program.lighting.peak == pytest.approx(0.95)
+            await pilot.press("tab", "left_square_bracket")  # wraps back to the bed
+            assert program.audio.level(Layer.BED) == pytest.approx(0.75) and program.lighting.peak == pytest.approx(0.95)
             await pilot.press("l", "s")
             await pilot.pause(0.4)
             assert len(app.query_one(LogPane).lines) > 0

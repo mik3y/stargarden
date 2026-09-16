@@ -111,6 +111,7 @@ class LightingConfig:
     driver: str = "console"  # console | null | enttec_open | enttec_pro
     port: str = "auto"  # serial device, or "auto" to pick the first FTDI widget
     fps: float = 30.0
+    peak: float = 1.0  # ceiling on theme brightness (0..1); lightning is exempt. Adjustable live from the console
     fixtures: tuple[FixtureConfig, ...] = ()
     profiles: dict[str, ProfileConfig] = field(default_factory=dict)
 
@@ -204,6 +205,8 @@ def load_config(path: Path) -> Config:
     fixtures = _table_list(FixtureConfig, lighting_raw.pop("fixtures", []), "lighting.fixtures")
     profiles = {name: _fill(ProfileConfig, spec, f"lighting.profiles.{name}") for name, spec in lighting_raw.pop("profiles", {}).items()}
     lighting = replace(_fill(LightingConfig, lighting_raw, "lighting"), fixtures=fixtures, profiles=profiles)
+    if not 0.0 <= lighting.peak <= 1.0:
+        raise ConfigError(f"lighting.peak: expected 0..1, got {lighting.peak}")
 
     presence_raw = dict(raw.get("presence", {}))
     sensors = _table_list(SensorConfig, presence_raw.pop("sensors", []), "presence.sensors")

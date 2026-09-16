@@ -18,6 +18,8 @@ from ..conductor import State
 from ..config import SensorRole
 
 LEVEL_STEP = 0.05
+PEAK = "peak"  # the lighting ceiling, mixed in with the audio layers in the levels panel
+LEVELS: tuple[str, ...] = (*Layer, PEAK)
 SWATCH_WIDTH = 16
 LOGGER_PREFIX = "stargarden."
 KEYS = (
@@ -27,7 +29,7 @@ KEYS = (
     ("n", "toggle day / night"),
     ("l / s", "lightning / discrete sound"),
     ("d", "debug logging"),
-    ("tab [ ]", "select layer, volume −/+"),
+    ("tab [ ]", "select level, nudge −/+"),
     ("q", "quit"),
 )
 LOGGER_WIDTH = 16
@@ -125,16 +127,16 @@ class StargardenApp(App):
         Binding("l", "lightning", "Lightning"),
         Binding("s", "discrete", "Sound"),
         Binding("d", "toggle_debug", "Debug log"),
-        Binding("tab", "next_layer", "Layer", priority=True),
-        Binding("left_square_bracket", "level(-1)", "Vol −", key_display="["),
-        Binding("right_square_bracket", "level(1)", "Vol +", key_display="]"),
+        Binding("tab", "next_level", "Level", priority=True),
+        Binding("left_square_bracket", "level(-1)", "Level −", key_display="["),
+        Binding("right_square_bracket", "level(1)", "Level +", key_display="]"),
     ]
 
     def __init__(self, program: Stargarden, log_buffer: LogBuffer) -> None:
         super().__init__()
         self.program = program
         self.log_buffer = log_buffer
-        self.selected_layer = Layer.BED
+        self.selected: str = Layer.BED
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -221,12 +223,12 @@ class StargardenApp(App):
 
     def refresh_levels(self) -> None:
         text = Text()
-        for layer in Layer:
-            level = self.program.audio.level(layer)
+        for name in LEVELS:
+            level = self.program.lighting.peak if name == PEAK else self.program.audio.level(Layer(name))
             filled = int(round(level * 20))
-            marker = "▶" if layer is self.selected_layer else " "
-            text.append(f"{marker} {layer:<9} ")
-            text.append("█" * filled + "░" * (20 - filled), style="green" if layer is self.selected_layer else "dim")
+            selected = name == self.selected
+            text.append(f"{'▶' if selected else ' '} {name:<9} ")
+            text.append("█" * filled + "░" * (20 - filled), style="green" if selected else "dim")
             text.append(f" {level:.2f}\n")
         self._update("#levels", text)
 
@@ -263,11 +265,13 @@ class StargardenApp(App):
         logging.getLogger(__name__).info("log level %s", "DEBUG" if debug else "INFO")
         self.query_one(LogPane).border_title = "log (debug)" if debug else "log"
 
-    def action_next_layer(self) -> None:
-        layers = list(Layer)
-        self.selected_layer = layers[(layers.index(self.selected_layer) + 1) % len(layers)]
+    def action_next_level(self) -> None:
+        self.selected = LEVELS[(LEVELS.index(self.selected) + 1) % len(LEVELS)]
         self.refresh_levels()
 
     def action_level(self, direction: int) -> None:
-        self.program.audio.nudge_level(self.selected_layer, LEVEL_STEP * direction)
+        if self.selected == PEAK:
+            self.program.lighting.nudge_peak(LEVEL_STEP * direction)
+        else:
+            self.program.audio.nudge_level(Layer(self.selected), LEVEL_STEP * direction)
         self.refresh_levels()
