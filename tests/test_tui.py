@@ -29,6 +29,9 @@ async def test_console_keys_drive_program(tmp_path, assets) -> None:
             # the layout must fit the screen: a visible log pane and nothing scrolled off the top
             assert app.query_one(LogPane).size.height > 5
             assert app.screen.scroll_y == 0 and app.screen.virtual_size.height <= app.size.height
+            await pilot.resize_terminal(110, 38)  # Textual schedules a resize check with set_timer; it must not crash
+            await pilot.pause(0.3)
+            assert app._exception is None
             await pilot.press("m")
             assert program.conductor.state is State.PRESENCE
             await pilot.press("2")

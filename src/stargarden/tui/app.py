@@ -158,7 +158,7 @@ class StargardenApp(App):
     def on_mount(self) -> None:
         for widget_id in ("status", "fixtures", "levels", "keys"):
             self.query_one(f"#{widget_id}", Static).border_title = widget_id
-        self._timers = [
+        self._refresh_timers = [  # not `_timers`: that is Textual's own set of timers
             self.set_interval(0.25, self.refresh_status),
             self.set_interval(0.1, self.refresh_fixtures),
             self.set_interval(0.25, self.query_one(LogPane).drain),
@@ -167,7 +167,7 @@ class StargardenApp(App):
         self.refresh_fixtures()
 
     def on_unmount(self) -> None:
-        for timer in self._timers:  # don't let a refresh land on widgets that are already gone
+        for timer in self._refresh_timers:  # don't let a refresh land on widgets that are already gone
             timer.stop()
 
     # -- panels ---------------------------------------------------------------
