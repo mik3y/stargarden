@@ -214,13 +214,19 @@ class StargardenApp(App):
         peak = self.program.lighting.peak
         for fixture, frame in zip(self.program.patch.fixtures, self.program.lighting.last_frames, strict=True):
             mode = fixture.mode
-            colors = sorted(mode.color_cells, key=lambda c: (c.position[1], c.position[0]))
-            row = [c for c in colors if c.position[1] == colors[0].position[1]] if colors else []
-            cells = row if len(row) > 1 else row * 4  # a single cell gets a wider swatch
-            for cell in cells[:SWATCH_WIDTH]:
+            ys = sorted({c.position[1] for c in mode.color_cells})
+            rows = [sorted((c for c in mode.color_cells if c.position[1] == y), key=lambda c: c.position[0]) for y in ys]
+            top = rows[0] if rows else []
+            bottom = rows[-1] if len(rows) > 1 else []  # a two-row grid (the bars) shows top and bottom in one line
+            width = max(1, min(SWATCH_WIDTH // max(1, len(top)), 4))  # a single cell gets a wider swatch
+            for k, cell in enumerate(top[:SWATCH_WIDTH]):
                 state = frame[cell.name]
                 r, g, b = swatch_rgb(state.color, state.intensity, peak)
-                text.append("▓" if state.strobe else "█", style=f"rgb({r},{g},{b})")
+                if bottom:
+                    r2, g2, b2 = swatch_rgb(frame[bottom[k].name].color, frame[bottom[k].name].intensity, peak)
+                    text.append("▀" * width, style=f"rgb({r},{g},{b}) on rgb({r2},{g2},{b2})")
+                else:
+                    text.append(("▓" if state.strobe else "█") * width, style=f"rgb({r},{g},{b})")
             if mode.white_cells:
                 text.append(" ")
                 for cell in mode.white_cells[: SWATCH_WIDTH // 2]:
