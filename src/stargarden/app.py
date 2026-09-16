@@ -146,7 +146,11 @@ class Stargarden:
             log.warning("show: no music in manifest; skipping")
             self.conductor.track_finished()
             return
-        theme = get_theme(track.theme) if track.theme else pick_show(self.rng, avoid=self.show_theme)
+        try:
+            theme = get_theme(track.theme) if track.theme else pick_show(self.rng, avoid=self.show_theme)
+        except KeyError:
+            log.warning("show: %s names unknown theme %r; picking from the pool", track.title, track.theme)
+            theme = pick_show(self.rng, avoid=self.show_theme)
         log.info("show: %s with theme %s", track.title, theme.name)
         lights_out = self.config.timers.lights_out_s
         self.lighting.fade_master(0.0, lights_out)

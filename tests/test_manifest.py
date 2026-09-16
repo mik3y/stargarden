@@ -10,7 +10,7 @@ def test_load_and_pick(assets: Path) -> None:
     m = load_manifest(assets)
     assert m.beds[0].path.name == "bed.wav"
     assert m.discretes[0].motion is DiscreteMotion.FLYBY
-    assert m.music[0].title == "Song" and m.music[0].theme == "aurora"
+    assert m.music[0].title == "Song" and m.music[0].theme == "orbit"
     assert m.thunder[0].path.name == "ping.wav" and m.pick_thunder(random.Random(0)) is m.thunder[0]
     rng = random.Random(0)
     assert m.pick_bed(rng) is m.beds[0]

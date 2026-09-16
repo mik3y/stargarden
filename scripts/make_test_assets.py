@@ -149,7 +149,7 @@ weight = 1.5
 [[music]]
 file = "music/drift.wav"
 title = "Drift"
-theme = "aurora"
+theme = "orbit"
 
 [[music]]
 file = "music/lantern.wav"

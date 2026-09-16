@@ -265,42 +265,8 @@ DRIFT_THEMES: dict[str, Theme] = {
 }
 
 
-DRIFT_SHOW_THEMES: dict[str, Theme] = {  # the earlier show palettes, still reachable by name
-    t.name: t
-    for t in (
-        DriftTheme(
-            "aurora",
-            ((0.00, 0.80, 0.40), (0.30, 0.10, 0.80), (0.00, 0.60, 0.80), (0.60, 0.00, 0.60)),
-            period_s=45.0,
-            spread=0.3,
-            brightness=1.0,
-            breathe_period_s=9.0,
-            breathe_depth=0.35,
-        ),
-        DriftTheme(
-            "starfall",
-            ((0.70, 0.75, 1.00), (0.10, 0.20, 0.70), (0.90, 0.85, 0.60), (0.20, 0.10, 0.40)),
-            period_s=60.0,
-            spread=0.4,
-            brightness=1.0,
-            breathe_period_s=6.0,
-            breathe_depth=0.5,
-        ),
-        DriftTheme(
-            "pulse",
-            ((0.90, 0.35, 0.05), (0.80, 0.05, 0.30), (0.95, 0.65, 0.15), (0.50, 0.00, 0.40)),
-            period_s=50.0,
-            spread=0.25,
-            brightness=1.0,
-            breathe_period_s=4.0,
-            breathe_depth=0.45,
-        ),
-    )
-}
-
-
 def get_theme(name: str) -> Theme:
-    theme = AMBIENT_THEMES.get(name) or SHOW_THEMES.get(name) or DRIFT_THEMES.get(name) or DRIFT_SHOW_THEMES.get(name)
+    theme = AMBIENT_THEMES.get(name) or SHOW_THEMES.get(name) or DRIFT_THEMES.get(name)
     if theme is None:
         raise KeyError(f"unknown lighting theme {name!r}")
     return theme

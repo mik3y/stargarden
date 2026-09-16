@@ -6,7 +6,7 @@ from stargarden.config import ConfigError, FixtureConfig, LightingConfig, Profil
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
 from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
-from stargarden.lighting.themes import AMBIENT_THEMES, DRIFT_SHOW_THEMES, DRIFT_THEMES, SHOW_THEMES, ChaseTheme, Spot, get_theme
+from stargarden.lighting.themes import AMBIENT_THEMES, DRIFT_THEMES, SHOW_THEMES, ChaseTheme, Spot, get_theme
 
 
 def make_cfg(*fixtures: FixtureConfig, **kw) -> LightingConfig:
@@ -56,7 +56,7 @@ def test_custom_profile_is_a_single_mode_type() -> None:
 
 def test_themes_are_bounded_and_smooth() -> None:
     spot = Spot(0, 4, 1, 4, 0, 2, ring=1, ring_count=16)
-    for theme in [*AMBIENT_THEMES.values(), *SHOW_THEMES.values(), *DRIFT_THEMES.values(), *DRIFT_SHOW_THEMES.values()]:
+    for theme in [*AMBIENT_THEMES.values(), *SHOW_THEMES.values(), *DRIFT_THEMES.values()]:
         prev = theme.color(spot, 0.0)
         for step in range(1, 200):
             c = theme.color(spot, step * 0.1)
@@ -291,7 +291,7 @@ def test_jolt_bar_fx2_zoned_modes() -> None:
 def test_engine_renders_bar_as_two_row_gradient(clock) -> None:
     cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("bar", "jolt_bar_fx2", "112ch", 10))
     patch = Patch.from_config(cfg)
-    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("aurora"), random.Random(1), clock=clock)
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
     engine.fade_master(1.0, 0.0)
     clock.advance(1)
     frames = engine.frame(clock())

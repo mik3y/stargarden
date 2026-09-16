@@ -50,7 +50,7 @@ motion = "flyby"
 [[music]]
 file = "music/song.wav"
 title = "Song"
-theme = "aurora"
+theme = "orbit"
 [[thunder]]
 file = "discretes/ping.wav"
 """
