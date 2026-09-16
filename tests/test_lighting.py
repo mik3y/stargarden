@@ -78,8 +78,10 @@ def test_dev_config_washes_render_unchanged(clock) -> None:
     engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
     engine.fade_master(1.0, 0.0)
     frame = patch.render(engine.frame(clock()))
-    assert frame[:20] == bytes([188, 0, 73, 132, 5, 217, 0, 64, 121, 44, 191, 0, 7, 105, 70, 198, 13, 0, 115, 19])
-    bar = frame[20:58]  # jolt 38ch: 8 lit RGB zones, outer dimmer full, both shutters open, whites dark
+    washes = b"".join(frame[f.address - 1 : f.address + 4] for f in patch.fixtures[:4])
+    assert washes == bytes([188, 0, 73, 132, 5, 217, 0, 64, 121, 44, 191, 0, 7, 105, 70, 198, 13, 0, 115, 19])
+    sky = patch.fixtures[4].address - 1
+    bar = frame[sky : sky + 38]  # jolt 38ch: 8 lit RGB zones, outer dimmer full, both shutters open, whites dark
     assert sum(bar[0:24]) > 0 and bar[24] > 150 and bar[26:29] == bytes([0, 0, 0])  # theme intensity on the outer dimmer
     assert bar[29:38] == bytes(9)
 

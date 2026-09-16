@@ -36,8 +36,8 @@ discretes = 0.7
 music = 0.9
 
 [lighting]
-driver = "enttec_pro"
-port = "/dev/ttyUSB0"
+driver = "enttec_open"  # Enttec Open DMX USB; "enttec_pro" for a DMX USB Pro
+port = "auto"  # first FTDI widget; pin with /dev/serial/by-id/usb-ENTTEC_... if there are several
 fps = 30
 
 [[lighting.fixtures]]

@@ -10,7 +10,7 @@ CONFIGS = Path(__file__).resolve().parent.parent / "configs"
 def test_dev_config_loads() -> None:
     cfg = load_config(CONFIGS / "dev.toml")
     assert cfg.audio.mode is AudioMode.STEREO
-    assert cfg.lighting.driver == "console"
+    assert (cfg.lighting.driver, cfg.lighting.port) == ("enttec_open", "auto")
     assert len(cfg.lighting.fixtures) == 5
     assert (cfg.lighting.fixtures[0].type, cfg.lighting.fixtures[0].mode) == ("generic", "dim_rgbw")
     assert (cfg.lighting.fixtures[4].type, cfg.lighting.fixtures[4].mode) == ("jolt_bar_fx2", "38ch")

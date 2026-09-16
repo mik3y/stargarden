@@ -1,4 +1,6 @@
-# Developer config: no hardware, stereo output, sensors faked from the console.
+# Developer config: stereo output, sensors faked from the console, and DMX out
+# through an Enttec Open DMX USB if one is plugged in (the console still shows
+# virtual fixtures either way).
 
 [site]
 name = "Stargarden (dev)"
@@ -24,42 +26,43 @@ min_interval_s = 8
 max_interval_s = 25
 
 [lighting]
-driver = "console"
+driver = "enttec_open"  # "console" for no hardware at all
+port = "auto"  # or pin it, e.g. "/dev/cu.usbserial-B000E5T5"
 fps = 30
 
 [[lighting.fixtures]]
 name = "tree-nw"
 type = "generic"
 mode = "dim_rgbw"
-address = 1
+address = 100
 position = [-0.8, 0.8]
 
 [[lighting.fixtures]]
 name = "tree-ne"
 type = "generic"
 mode = "dim_rgbw"
-address = 6
+address = 106
 position = [0.8, 0.8]
 
 [[lighting.fixtures]]
 name = "tree-sw"
 type = "generic"
 mode = "dim_rgbw"
-address = 11
+address = 111
 position = [-0.8, -0.8]
 
 [[lighting.fixtures]]
 name = "tree-se"
 type = "generic"
 mode = "dim_rgbw"
-address = 16
+address = 116
 position = [0.8, -0.8]
 
 [[lighting.fixtures]]
 name = "sky"
 type = "jolt_bar_fx2"
 mode = "38ch"  # set the same mode on the bar's menu
-address = 21
+address = 1
 position = [0.0, 1.0]
 
 [lightning]

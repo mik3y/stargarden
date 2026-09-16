@@ -14,8 +14,11 @@ section says which of these words Stargarden uses.
   120 Ω **terminator**. Order on the chain does not matter; addressing does.
 - Each fixture is set to a **start address** and listens to a contiguous block of channels from
   there; the block size is its **footprint**. Two fixtures given the same address behave identically.
-- A controller reaches the wire through a **DMX interface**: a USB adapter (e.g. Enttec DMX USB
-  Pro), or an Ethernet node speaking **Art-Net** or **sACN (E1.31)**, which carry universes over IP.
+- A controller reaches the wire through a **DMX interface**: a USB adapter, or an Ethernet node
+  speaking **Art-Net** or **sACN (E1.31)**, which carry universes over IP. USB adapters come in two
+  kinds: ones with an onboard engine that keeps refreshing the wire from the last universe the host
+  sent (Enttec DMX USB Pro, DMXking ultraDMX), and bare USB-serial (FTDI) transmitters where the
+  host must generate every break and frame itself (Enttec Open DMX USB and its many clones).
 - **RDM** (Remote Device Management) is an optional back-channel over the same wire for reading and
   setting fixture parameters (address, mode) remotely.
 

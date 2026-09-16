@@ -33,7 +33,7 @@ Transitions:
 
 * **Single asyncio process.** One Python process hosts all components; the TUI is just another component and can be disabled (`--headless`) when running under systemd. Audio rendering runs in the PortAudio callback thread; everything else is async tasks.
 * **Lighting is pure Python.** No external lighting desk. The looks we need — slow generative color drift, theme palettes, music-mode intensity, occasional lightning — are simple math over a handful of fixtures, and keeping them in-process keeps lighting locked to program state and audio events. We define our own small fixture profiles.
-* **DMX out via Enttec DMX USB Pro** (or compatible). The adapter's onboard engine handles DMX frame timing; we send universe snapshots over serial (`pyserial`) at ~30 Hz. The driver is behind a small interface so other adapters (or sACN) can be added later.
+* **DMX out via Enttec Open DMX USB.** The widget is a bare FTDI UART with no DMX engine, so we generate the signal ourselves: a transmitter thread streams the latest universe back to back over `pyserial` at 250 kbaud 8N2, producing each frame's break and mark-after-break with the port's break line. The render loop just swaps in new frames at ~30 Hz, and the wire stays alive (holding the last look) even if the loop stalls. The driver is behind a small interface; the DMX USB Pro (which has its own engine and takes snapshots over its framed protocol) is also supported, and other adapters (or sACN) can be added later.
 * **Audio via `sounddevice` (PortAudio) with our own mixer.** A numpy mixing engine renders N layers → per-layer gain → 4-speaker panning, at 48 kHz float32. Quad mode maps FL/FR/RL/RR to outputs 1–4 of a class-compliant USB interface; stereo mode (developer MacBooks) folds the rear channels down with attenuation so spatial effects remain audible.
 * **Presence via `bleak` passive BLE scanning.** Two Shelly Blu Motion sensors (platform + walkway) broadcasting **unencrypted** BTHome v2 advertisements; no pairing, no bindkeys. Encryption support can be added later if needed.
 * **TUI via Textual.** Logs, state display/override, per-layer volume, and (in dev) simulated fixtures and motion injection.
@@ -64,7 +64,7 @@ A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift wi
 * **Fixture types** with their **DMX modes** (built in: `generic` washes, the ADJ Jolt Bar FX2) and the **patch** (fixture → type, mode, DMX address) are declared in config. A mode exposes **cells** — the fixture's light-emitting sub-units with positions — and channels carrying GDTF-named attributes; the engine sets per-cell state and the renderer resolves shared (master) dimmers and strobes. Vocabulary: `docs/lighting-concepts.md`.
 * **Themes** are small Python classes registered by name; ambient themes are weighted-random selected and rotate slowly, show themes are selected per the music manifest.
 * **Overlays** rewrite the per-cell frames on top of the theme while active; lightning is the first.
-* Drivers: `enttec_pro` (real hardware), `console` (virtual fixture swatches in the TUI), `null`.
+* Drivers: `enttec_open` (Enttec Open DMX USB), `enttec_pro` (Enttec DMX USB Pro), `console` (virtual fixture swatches in the TUI), `null`.
 
 ### Lightning
 
@@ -100,7 +100,7 @@ A Textual app showing recent log lines, current state and timers, presence senso
 Production target:
 
 * Raspberry Pi (Raspberry Pi OS), with RTC module for offline timekeeping
-* Enttec DMX USB Pro (or compatible)
+* Enttec Open DMX USB (a DMX USB Pro also works, with `driver = "enttec_pro"`)
 * Class-compliant USB audio interface with ≥4 outputs, into external amplification (4 speakers encircling the space)
 * RGB/RGBW DMX wash fixtures; optionally one or more strobe-capable fixtures. The ADJ Jolt Bar FX2 is built in with all 17 of its DMX modes (`type = "jolt_bar_fx2"`, `mode = "38ch"`…); we run it in **38CH**: 4 RGB columns rendered as a gradient, and the white LEDs as their own cells with a separate dimmer and strobe, which is what lightning flashes. Reference material for it lives in `docs/fixtures/`.
 * 2× Shelly Blu Motion (platform, walkway), unencrypted BTHome broadcasts
@@ -135,8 +135,10 @@ uv run pytest
 ```
 
 The dev config selects stereo output (falling back to a silent clock if PortAudio
-is missing), the `console` DMX driver, simulated presence, and a schedule
-override so it is always "night". Console keys:
+is missing), DMX out through an Enttec Open DMX USB if one is plugged in (the
+console shows virtual fixtures regardless; set `driver = "console"` to skip the
+hardware entirely), simulated presence, and a schedule override so it is always
+"night". Console keys:
 
 | key | action |
 |---|---|
@@ -192,6 +194,13 @@ in coordinates, sensor MACs, the DMX patch, and the audio device; rsync the
 assets directory to `assets.root`; run `stargarden --config <site>.toml
 --headless` from a systemd unit (`Restart=always`). Fit an RTC module so the
 sunset schedule survives power cycles offline.
+
+The Open DMX USB appears as a plain FTDI serial port (`ftdi_sio`, no extra
+driver); the service user needs to be in the `dialout` group, and
+`lighting.port = "auto"` finds it (pin `/dev/serial/by-id/usb-ENTTEC_...` if
+several FTDI devices are attached). A widget that is missing or unplugged is
+logged once and retried every couple of seconds, so the rest of the program
+keeps running.
 
 ## Open questions
 

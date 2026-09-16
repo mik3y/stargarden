@@ -108,8 +108,8 @@ class ProfileConfig:
 
 @dataclass(frozen=True)
 class LightingConfig:
-    driver: str = "console"  # console | null | enttec_pro
-    port: str = "/dev/ttyUSB0"
+    driver: str = "console"  # console | null | enttec_open | enttec_pro
+    port: str = "auto"  # serial device, or "auto" to pick the first FTDI widget
     fps: float = 30.0
     fixtures: tuple[FixtureConfig, ...] = ()
     profiles: dict[str, ProfileConfig] = field(default_factory=dict)
