@@ -9,6 +9,7 @@ frames for as long as it is active, on top of both; the engine drops it once
 
 import asyncio
 import logging
+import math
 import random
 import time
 from collections.abc import Callable
@@ -68,7 +69,7 @@ class LightingEngine:
         self.peak = cfg.peak
         self._overlays: list[Overlay] = []
         self.last_frames: list[FixtureFrame] = [self._blackout(f) for f in patch.fixtures]
-        self._spots: list[dict[str, Spot]] = [self._grid(i, f, len(patch.fixtures)) for i, f in enumerate(patch.fixtures)]
+        self._spots: list[dict[str, Spot]] = self._spots_for(patch)
 
     # -- control --------------------------------------------------------------
 
@@ -109,12 +110,44 @@ class LightingEngine:
         return {cell.name: CellState(intensity=0.0) for cell in fixture.mode.cells}
 
     @staticmethod
-    def _grid(i: int, fixture, count: int) -> dict[str, Spot]:
-        """A Spot per color cell, placing each on the fixture's grid of distinct column and row positions."""
-        cells = fixture.mode.color_cells
-        xs = sorted({c.position[0] for c in cells})
-        ys = sorted({c.position[1] for c in cells})
-        return {c.name: Spot(i, count, xs.index(c.position[0]), len(xs), ys.index(c.position[1]), len(ys)) for c in cells}
+    def _spots_for(patch: Patch) -> list[dict[str, Spot]]:
+        """A Spot per color cell: its place on the fixture's grid of distinct column and row
+        positions, and its place on the ring of columns running clockwise around the space
+        (fixtures by the bearing of their position from the center, columns left to right)."""
+        grids = []
+        for fixture in patch.fixtures:
+            cells = fixture.mode.color_cells
+            xs = sorted({c.position[0] for c in cells})
+            ys = sorted({c.position[1] for c in cells})
+            grids.append((xs, ys))
+        count = len(patch.fixtures)
+        bearing = [math.atan2(f.position[0], f.position[1]) % (2 * math.pi) for f in patch.fixtures]  # clockwise from north
+        order = sorted(range(count), key=lambda i: (bearing[i], i))
+        ring_count = sum(len(xs) for xs, _ in grids)
+        ring_base = {}
+        offset = 0
+        for i in order:
+            ring_base[i] = offset
+            offset += len(grids[i][0])
+        spots = []
+        for i, fixture in enumerate(patch.fixtures):
+            xs, ys = grids[i]
+            spots.append(
+                {
+                    c.name: Spot(
+                        i,
+                        count,
+                        xs.index(c.position[0]),
+                        len(xs),
+                        ys.index(c.position[1]),
+                        len(ys),
+                        ring_base[i] + xs.index(c.position[0]),
+                        ring_count,
+                    )
+                    for c in fixture.mode.color_cells
+                }
+            )
+        return spots
 
     def frame(self, t: float) -> list[FixtureFrame]:
         level = self._master.at(t) * self.peak

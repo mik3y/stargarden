@@ -6,7 +6,7 @@ from stargarden.config import ConfigError, FixtureConfig, LightingConfig, Profil
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
 from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
-from stargarden.lighting.themes import AMBIENT_THEMES, DRIFT_THEMES, SHOW_THEMES, Spot, get_theme
+from stargarden.lighting.themes import AMBIENT_THEMES, DRIFT_SHOW_THEMES, DRIFT_THEMES, SHOW_THEMES, ChaseTheme, Spot, get_theme
 
 
 def make_cfg(*fixtures: FixtureConfig, **kw) -> LightingConfig:
@@ -55,13 +55,14 @@ def test_custom_profile_is_a_single_mode_type() -> None:
 
 
 def test_themes_are_bounded_and_smooth() -> None:
-    spot = Spot(0, 4, 1, 4, 0, 2)
-    for theme in [*AMBIENT_THEMES.values(), *SHOW_THEMES.values(), *DRIFT_THEMES.values()]:
+    spot = Spot(0, 4, 1, 4, 0, 2, ring=1, ring_count=16)
+    for theme in [*AMBIENT_THEMES.values(), *SHOW_THEMES.values(), *DRIFT_THEMES.values(), *DRIFT_SHOW_THEMES.values()]:
         prev = theme.color(spot, 0.0)
         for step in range(1, 200):
             c = theme.color(spot, step * 0.1)
             assert all(0.0 <= ch <= 1.0 for ch in c)
-            assert max(abs(a - b) for a, b in zip(c, prev, strict=True)) < 0.05
+            if not isinstance(theme, ChaseTheme):  # the chase is meant to snap; the slow programs must not
+                assert max(abs(a - b) for a, b in zip(c, prev, strict=True)) < 0.05
             prev = c
             assert 0.0 <= theme.intensity(spot, step * 0.1) <= 1.0
     with pytest.raises(KeyError):
@@ -92,17 +93,65 @@ def test_ember_waves_void_columns_and_palette() -> None:
     assert max(levels) > 0.8 and min(levels) < 0.4
 
 
-def test_spot_grid_from_bar_cells(clock) -> None:
+def test_orbit_chases_both_ways_then_dances() -> None:
+    theme = get_theme("orbit")
+    assert isinstance(theme, ChaseTheme)
+    n = 16
+    ring = [Spot(r // 4, 4, r % 4, 4, 0, 2, ring=r, ring_count=n) for r in range(n)]
+    chase = theme.laps * n * theme.step_s
+
+    def head(t: float) -> int:
+        return max(range(n), key=lambda r: theme.intensity(ring[r], t))
+
+    # clockwise: the brightest column advances one place per step
+    heads = [head(2.2 + k * theme.step_s) for k in range(6)]
+    assert all((b - a) % n == 1 for a, b in zip(heads, heads[1:], strict=False)), heads
+    # counter-clockwise, well inside the second movement
+    heads = [head(chase + 2.2 + k * theme.step_s) for k in range(6)]
+    assert all((a - b) % n == 1 for a, b in zip(heads, heads[1:], strict=False)), heads
+    # a lit head is bright, the far side of the room is only the glow
+    t = 2.0  # exactly on a step: the head sits squarely on one column
+    h = head(t)
+    assert theme.intensity(ring[h], t) > 0.9 and theme.intensity(ring[(h + 8) % n], t) == pytest.approx(theme.glow_level)
+    r, g, b = theme.color(ring[h], t)
+    assert b > 0.9 and g < 0.3  # blue/purple, never washed
+    # the dance: odd and even columns take turns each beat
+    t0 = 2 * chase + 3.0
+    even = [theme.intensity(ring[0], t0 + k * theme.dance_step_s) for k in range(4)]
+    odd = [theme.intensity(ring[1], t0 + k * theme.dance_step_s) for k in range(4)]
+    assert all((e > 0.8) != (o > 0.8) for e, o in zip(even, odd, strict=True))
+    assert (even[0] > 0.8) != (even[1] > 0.8)
+    # movements cross-fade rather than cut: at each boundary the two sides share the light equally
+    cycle = theme._cycle_s(ring[0])
+    assert theme._weights(ring[0], chase) == pytest.approx((0.5, 0.5, 0.0))
+    assert theme._weights(ring[0], 2 * chase) == pytest.approx((0.0, 0.5, 0.5))
+    assert theme._weights(ring[0], cycle) == pytest.approx((0.5, 0.0, 0.5))
+    assert all(sum(theme._weights(ring[0], k / 10)) == pytest.approx(1.0) for k in range(int(cycle * 10)))
+
+
+def test_spot_grid_and_ring_from_bar_cells(clock) -> None:
     cfg = make_cfg(fx("bar", "jolt_bar_fx2", "38ch", 1), fx("wash", "generic", "rgb", 40))
     engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("ember-waves"), random.Random(1), clock=clock)
     bar, wash = engine._spots
-    assert bar["rgb1"] == Spot(0, 2, 0, 4, 0, 2) and bar["rgb5"] == Spot(0, 2, 0, 4, 1, 2) and bar["rgb8"] == Spot(0, 2, 3, 4, 1, 2)
-    assert wash["cell"] == Spot(1, 2) and wash["cell"].index == 1.0
+    assert bar["rgb1"] == Spot(0, 2, 0, 4, 0, 2, 0, 5) and bar["rgb5"] == Spot(0, 2, 0, 4, 1, 2, 0, 5)
+    assert bar["rgb8"] == Spot(0, 2, 3, 4, 1, 2, 3, 5)
+    assert wash["cell"] == Spot(1, 2, ring=4, ring_count=5) and wash["cell"].index == 1.0
     clock.t = 0.0  # start of the exchange cycle: columns 1/3 hold the light
     engine.fade_master(1.0, 0.0)
     frame = engine.frame(clock())[0]
     assert frame["rgb1"].intensity == pytest.approx(frame["rgb5"].intensity)  # a column's two rows match
     assert frame["rgb2"].intensity < 0.1 * frame["rgb1"].intensity  # column 2 is a void
+
+
+def test_ring_runs_clockwise_from_north_by_position() -> None:
+    cfg = make_cfg(
+        FixtureConfig("nw", "generic", 1, "rgb", (-0.8, 0.8)),
+        FixtureConfig("ne", "generic", 4, "rgb", (0.8, 0.8)),
+        FixtureConfig("sw", "generic", 7, "rgb", (-0.8, -0.8)),
+        FixtureConfig("se", "generic", 10, "rgb", (0.8, -0.8)),
+    )
+    engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("orbit"), random.Random(1))
+    assert [s["cell"].ring for s in engine._spots] == [3, 0, 2, 1]  # ne, se, sw, nw going clockwise from north
 
 
 def test_washes_render_unchanged(clock) -> None:

@@ -5,14 +5,15 @@ spot is a fixture in the patch and, for zoned fixtures, a cell of its grid.
 DriftTheme walks each fixture around a palette with a per-fixture phase offset,
 so the trees share a mood without moving in unison. WaveTheme, the ambient
 program, sends waves of amber and orange along the bars with every other
-column dark.
+column dark. ChaseTheme, the show program, runs a column of light around the
+room one way, then the other, then breaks into an odd/even dance.
 """
 
 import math
 import random
 from dataclasses import dataclass
 
-from .color import RGB, mix, sample_palette
+from .color import BLACK, RGB, mix, sample_palette
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,10 @@ class Spot:
     """Where a theme is sampled: fixture `fixture` of `count`, and for a zoned
     fixture the cell at (col of cols, row of rows) in its grid. `index` is the
     continuous position along the patch (fixture 2, column 5 of 16 → 2.34), so
-    a bar shows a gradient of what its neighbors would show."""
+    a bar shows a gradient of what its neighbors would show. `ring` is the
+    column's place going clockwise around the space (fixtures ordered by the
+    bearing of their position, columns left to right within each), of
+    `ring_count` columns in all."""
 
     fixture: int
     count: int
@@ -28,6 +32,8 @@ class Spot:
     cols: int = 1
     row: int = 0
     rows: int = 1
+    ring: int = 0
+    ring_count: int = 1
 
     @property
     def index(self) -> float:
@@ -129,7 +135,109 @@ class WaveTheme(Theme):
         return self.brightness * level * self.gate(spot, t)
 
 
+def _smoothstep(x: float) -> float:
+    x = min(1.0, max(0.0, x))
+    return x * x * (3.0 - 2.0 * x)
+
+
+@dataclass(frozen=True)
+class ChaseTheme(Theme):
+    """A column of light circling the space, in blue and purple.
+
+    Three movements, repeating: the head runs clockwise around the ring of
+    columns for a few laps with a short tail fading behind it, then runs the
+    other way, then the room breaks into a dance where the odd and even
+    columns take turns on a steady beat. Between hits the room holds a faint
+    indigo glow rather than going black. Movements cross-fade into each other.
+    The head's color slides between blue and purple as it goes round.
+    """
+
+    name: str
+    blue: RGB = (0.05, 0.22, 1.0)
+    purple: RGB = (0.55, 0.04, 1.0)
+    glow: RGB = (0.03, 0.03, 0.4)  # the room between hits
+    glow_level: float = 0.06
+    step_s: float = 0.4  # one column to the next
+    laps: int = 2  # per direction
+    tail: float = 1.6  # columns of afterglow behind the head
+    dance_s: float = 12.0
+    dance_step_s: float = 0.5  # odd/even swap on this beat
+    dance_floor: float = 0.12  # the resting side of the dance, relative to the lit side
+    fade_s: float = 1.2  # cross-fade between movements
+    hue_period_s: float = 9.0  # blue → purple → blue
+
+    # -- timeline -------------------------------------------------------------
+
+    def _chase_s(self, spot: Spot) -> float:
+        return self.laps * spot.ring_count * self.step_s
+
+    def _cycle_s(self, spot: Spot) -> float:
+        return 2 * self._chase_s(spot) + self.dance_s
+
+    def _weights(self, spot: Spot, t: float) -> tuple[float, float, float]:
+        """How much of each movement (clockwise, counter, dance) applies at t; they sum to 1."""
+        cycle = self._cycle_s(spot)
+        u = t % cycle
+        bounds = (0.0, self._chase_s(spot), 2 * self._chase_s(spot))
+
+        def past(b: float) -> float:  # 0 before boundary b, 1 after, smooth across fade_s (wrapping)
+            d = (u - b + cycle / 2) % cycle - cycle / 2
+            return _smoothstep(0.5 + d / self.fade_s)
+
+        s0, s1, s2 = (past(b) for b in bounds)
+        return s0 * (1 - s1), s1 * (1 - s2), s2 * (1 - s0)
+
+    # -- movements ------------------------------------------------------------
+
+    def _head_color(self, spot: Spot, t: float) -> RGB:
+        u = 0.5 + 0.5 * math.sin(2 * math.pi * (t / self.hue_period_s + spot.ring / max(1, spot.ring_count)))
+        return mix(self.blue, self.purple, u)
+
+    def _chase(self, spot: Spot, tau: float, clockwise: bool) -> float:
+        n = spot.ring_count
+        steps = tau / self.step_s
+        head = (steps if clockwise else -steps) % n
+        behind = (head - spot.ring) % n if clockwise else (spot.ring - head) % n  # columns since the head passed
+        return max(0.0, 1.0 - behind / self.tail) ** 1.5
+
+    def _dance(self, spot: Spot, tau: float) -> tuple[RGB, float]:
+        beats = tau / self.dance_step_s
+        lit = int(beats) % 2 == spot.ring % 2
+        frac = beats % 1.0
+        color = self.blue if spot.ring % 2 == 0 else self.purple
+        return color, (1.0 - 0.5 * frac) if lit else self.dance_floor
+
+    # -- theme ----------------------------------------------------------------
+
+    def sample(self, spot: Spot, t: float) -> tuple[RGB, float]:
+        w_cw, w_ccw, w_dance = self._weights(spot, t)
+        u = t % self._cycle_s(spot)
+        chase = self._chase_s(spot)
+        parts: list[tuple[RGB, float, float]] = []  # color, level, weight
+        if w_cw > 0:
+            parts.append((self._head_color(spot, t), self._chase(spot, u, True), w_cw))
+        if w_ccw > 0:
+            parts.append((self._head_color(spot, t), self._chase(spot, u - chase, False), w_ccw))
+        if w_dance > 0:
+            color, level = self._dance(spot, u - 2 * chase)
+            parts.append((color, level, w_dance))
+        level = sum(lv * w for _, lv, w in parts)
+        total = self.glow_level + level
+        color: RGB = BLACK
+        for c, lv, w in parts:
+            color = tuple(a + b * lv * w / total for a, b in zip(color, c, strict=True))
+        color = tuple(a + g * self.glow_level / total for a, g in zip(color, self.glow, strict=True))
+        return color, min(1.0, total)
+
+    def color(self, spot: Spot, t: float) -> RGB:
+        return self.sample(spot, t)[0]
+
+    def intensity(self, spot: Spot, t: float) -> float:
+        return self.sample(spot, t)[1]
+
+
 AMBIENT_THEMES: dict[str, Theme] = {t.name: t for t in (WaveTheme("ember-waves"),)}
+SHOW_THEMES: dict[str, Theme] = {t.name: t for t in (ChaseTheme("orbit"),)}
 
 DRIFT_THEMES: dict[str, Theme] = {
     t.name: t
@@ -156,7 +264,8 @@ DRIFT_THEMES: dict[str, Theme] = {
     )
 }
 
-SHOW_THEMES: dict[str, Theme] = {
+
+DRIFT_SHOW_THEMES: dict[str, Theme] = {  # the earlier show palettes, still reachable by name
     t.name: t
     for t in (
         DriftTheme(
@@ -191,7 +300,7 @@ SHOW_THEMES: dict[str, Theme] = {
 
 
 def get_theme(name: str) -> Theme:
-    theme = AMBIENT_THEMES.get(name) or SHOW_THEMES.get(name) or DRIFT_THEMES.get(name)
+    theme = AMBIENT_THEMES.get(name) or SHOW_THEMES.get(name) or DRIFT_THEMES.get(name) or DRIFT_SHOW_THEMES.get(name)
     if theme is None:
         raise KeyError(f"unknown lighting theme {name!r}")
     return theme
