@@ -102,7 +102,7 @@ Production target:
 * Raspberry Pi (Raspberry Pi OS), with RTC module for offline timekeeping
 * Enttec Open DMX USB (a DMX USB Pro also works, with `driver = "enttec_pro"`)
 * Class-compliant USB audio interface with ≥4 outputs, into external amplification (4 speakers encircling the space)
-* RGB/RGBW DMX wash fixtures; optionally one or more strobe-capable fixtures. The ADJ Jolt Bar FX2 is built in with all 17 of its DMX modes (`type = "jolt_bar_fx2"`, `mode = "38ch"`…); we run it in **38CH**: 4 RGB columns rendered as a gradient, and the white LEDs as their own cells with a separate dimmer and strobe, which is what lightning flashes. Reference material for it lives in `docs/fixtures/`.
+* 4× ADJ Jolt Bar FX2, one per corner, addressed back to back from 1 (38 channels each: 1, 39, 77, 115). The type is built in with all 17 of its DMX modes (`type = "jolt_bar_fx2"`, `mode = "38ch"`…); we run it in **38CH**: 4 RGB columns rendered as a gradient, and the white LEDs as their own cells with a separate dimmer and strobe, which is what lightning flashes. Reference material for it lives in `docs/fixtures/`. Generic RGB/RGBW washes are also supported (`type = "generic"`).
 * 2× Shelly Blu Motion (platform, walkway), unencrypted BTHome broadcasts
 
 Development target: macOS laptop, no hardware — stereo audio out, simulated fixtures and sensors.

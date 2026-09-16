@@ -31,40 +31,35 @@ port = "auto"  # or pin it, e.g. "/dev/cu.usbserial-B000E5T5"
 fps = 30
 peak = 1.0  # brightness ceiling for the themes; tab to "peak" in the console and nudge with [ ]
 
+# Four ADJ Jolt Bar FX2 in 38CH mode (set on each bar's menu), 38 channels apiece,
+# addressed back to back from 1.
 [[lighting.fixtures]]
-name = "tree-nw"
-type = "generic"
-mode = "dim_rgbw"
-address = 100
+name = "bar-nw"
+type = "jolt_bar_fx2"
+mode = "38ch"
+address = 1
 position = [-0.8, 0.8]
 
 [[lighting.fixtures]]
-name = "tree-ne"
-type = "generic"
-mode = "dim_rgbw"
-address = 106
+name = "bar-ne"
+type = "jolt_bar_fx2"
+mode = "38ch"
+address = 39
 position = [0.8, 0.8]
 
 [[lighting.fixtures]]
-name = "tree-sw"
-type = "generic"
-mode = "dim_rgbw"
-address = 111
+name = "bar-sw"
+type = "jolt_bar_fx2"
+mode = "38ch"
+address = 77
 position = [-0.8, -0.8]
 
 [[lighting.fixtures]]
-name = "tree-se"
-type = "generic"
-mode = "dim_rgbw"
-address = 116
-position = [0.8, -0.8]
-
-[[lighting.fixtures]]
-name = "sky"
+name = "bar-se"
 type = "jolt_bar_fx2"
-mode = "38ch"  # set the same mode on the bar's menu
-address = 1
-position = [0.0, 1.0]
+mode = "38ch"
+address = 115
+position = [0.8, -0.8]
 
 [lightning]
 mean_interval_s = 120  # dev: storms every couple of minutes while someone is on the platform

@@ -1,15 +1,12 @@
 import random
-from pathlib import Path
 
 import pytest
 
-from stargarden.config import ConfigError, FixtureConfig, LightingConfig, ProfileConfig, load_config
+from stargarden.config import ConfigError, FixtureConfig, LightingConfig, ProfileConfig
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
 from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
 from stargarden.lighting.themes import AMBIENT_THEMES, SHOW_THEMES, get_theme
-
-CONFIGS = Path(__file__).resolve().parent.parent / "configs"
 
 
 def make_cfg(*fixtures: FixtureConfig, **kw) -> LightingConfig:
@@ -70,9 +67,15 @@ def test_themes_are_bounded_and_smooth() -> None:
         get_theme("nope")
 
 
-def test_dev_config_washes_render_unchanged(clock) -> None:
-    """The four washes must render byte-for-byte what the previous fixture model produced."""
-    cfg = load_config(CONFIGS / "dev.toml").lighting
+def test_washes_render_unchanged(clock) -> None:
+    """Four washes and a bar (the original dev rig) must render byte-for-byte what the previous fixture model produced."""
+    cfg = make_cfg(
+        fx("tree-nw", "generic", "dim_rgbw", 1),
+        fx("tree-ne", "generic", "dim_rgbw", 6),
+        fx("tree-sw", "generic", "dim_rgbw", 11),
+        fx("tree-se", "generic", "dim_rgbw", 16),
+        fx("sky", "jolt_bar_fx2", "38ch", 21),
+    )
     patch = Patch.from_config(cfg)
     clock.t = 1234.5
     engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)

@@ -1,5 +1,5 @@
-# Field config for the Raspberry Pi. Fill in coordinates, sensor addresses,
-# and the DMX patch for the installed fixtures.
+# Field config for the Raspberry Pi. Fill in coordinates and sensor addresses;
+# the DMX patch is the four bars, addressed from 1.
 
 [site]
 name = "Stargarden"
@@ -40,19 +40,35 @@ driver = "enttec_open"  # Enttec Open DMX USB; "enttec_pro" for a DMX USB Pro
 port = "auto"  # first FTDI widget; pin with /dev/serial/by-id/usb-ENTTEC_... if there are several
 fps = 30
 
+# Four ADJ Jolt Bar FX2 in 38CH mode (set on each bar's menu), 38 channels apiece,
+# addressed back to back from 1.
 [[lighting.fixtures]]
-name = "tree-1"
-type = "generic"
-mode = "dim_rgbw"
+name = "bar-nw"
+type = "jolt_bar_fx2"
+mode = "38ch"
 address = 1
 position = [-0.8, 0.8]
 
 [[lighting.fixtures]]
-name = "sky"
+name = "bar-ne"
 type = "jolt_bar_fx2"
-mode = "38ch"  # set the same mode on the bar's menu
-address = 11
-position = [0.0, 1.0]
+mode = "38ch"
+address = 39
+position = [0.8, 0.8]
+
+[[lighting.fixtures]]
+name = "bar-sw"
+type = "jolt_bar_fx2"
+mode = "38ch"
+address = 77
+position = [-0.8, -0.8]
+
+[[lighting.fixtures]]
+name = "bar-se"
+type = "jolt_bar_fx2"
+mode = "38ch"
+address = 115
+position = [0.8, -0.8]
 
 [lightning]
 enabled = true

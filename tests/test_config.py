@@ -11,10 +11,7 @@ def test_dev_config_loads() -> None:
     cfg = load_config(CONFIGS / "dev.toml")
     assert cfg.audio.mode is AudioMode.STEREO
     assert (cfg.lighting.driver, cfg.lighting.port) == ("enttec_open", "auto")
-    assert len(cfg.lighting.fixtures) == 5
-    assert (cfg.lighting.fixtures[0].type, cfg.lighting.fixtures[0].mode) == ("generic", "dim_rgbw")
-    assert (cfg.lighting.fixtures[4].type, cfg.lighting.fixtures[4].mode) == ("jolt_bar_fx2", "38ch")
-    assert cfg.lighting.fixtures[0].position == (-0.8, 0.8)
+    assert [f.address for f in cfg.lighting.fixtures] == [1, 39, 77, 115]  # the same four bars as production
     assert cfg.assets_root == (CONFIGS / ".." / "assets-dev")
     assert cfg.schedule.enabled is False
     assert cfg.lightning.states == ("presence",) and cfg.lightning.mean_interval_s == 120
@@ -24,6 +21,8 @@ def test_dev_config_loads() -> None:
 def test_production_config_loads() -> None:
     cfg = load_config(CONFIGS / "production.toml")
     assert cfg.presence.source == "ble"
+    assert [(f.type, f.mode, f.address) for f in cfg.lighting.fixtures] == [("jolt_bar_fx2", "38ch", a) for a in (1, 39, 77, 115)]
+    assert len({f.position for f in cfg.lighting.fixtures}) == 4  # one bar per corner
     assert cfg.presence.sensors[0].role is SensorRole.PLATFORM
     assert cfg.audio.levels.music == 0.9
     assert cfg.lightning.mean_interval_s == 1200 and cfg.lightning.thunder_delay_s == (0.3, 2.5)
