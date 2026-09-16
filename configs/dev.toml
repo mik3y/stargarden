@@ -67,8 +67,13 @@ min_interval_s = 30
 thunder_delay_s = [0.3, 2.5]
 
 [presence]
-source = "simulated"
+source = "ble"
 vacancy_timeout_s = 120
+
+[[presence.sensors]]
+role = "platform"
+name = "platform"
+address = "3959F0F8-69B9-683D-98F6-D0112B50C4EE"
 
 [assets]
 root = "../assets-dev"
