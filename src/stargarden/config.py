@@ -69,6 +69,9 @@ class AudioConfig:
     # where each output channel's speaker stands, in the same compass square as fixture
     # positions (x: -1 left … 1 right, y: -1 rear … 1 front); reorder to match the cabling
     speakers: tuple[tuple[float, float], ...] = QUAD_CORNERS
+    # which of the device's output channels (1-based) carry outputs 1-4; a 7.1 card has its
+    # front pair on 1-2 and its surround pair on 5-6, a 4-out interface is simply 1-4
+    channel_map: tuple[int, ...] = (1, 2, 3, 4)
     levels: AudioLevels = field(default_factory=AudioLevels)
     duck_level: float = 0.25
     duck_fade_s: float = 3.0
@@ -174,6 +177,10 @@ def _coerce(kind: Any, value: Any, where: str) -> Any:
         return (float(value[0]), float(value[1]))
     if kind == tuple[str, ...]:
         return tuple(str(v) for v in value)
+    if kind == tuple[int, ...]:
+        if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
+            raise ConfigError(f"{where}: expected a list of integers")
+        return tuple(value)
     if kind == tuple[tuple[float, float], ...]:
         return tuple(_coerce(tuple[float, float], v, f"{where}[{i}]") for i, v in enumerate(value))
     if is_dataclass(kind) and isinstance(value, dict):
@@ -222,6 +229,10 @@ def load_config(path: Path) -> Config:
     sensors = _table_list(SensorConfig, presence_raw.pop("sensors", []), "presence.sensors")
     presence = replace(_fill(PresenceConfig, presence_raw, "presence"), sensors=sensors)
 
+    audio = _fill(AudioConfig, raw.get("audio", {}), "audio")
+    if len(audio.channel_map) != 4 or len(set(audio.channel_map)) != 4 or min(audio.channel_map) < 1:
+        raise ConfigError(f"audio.channel_map: expected four distinct output channels numbered from 1, got {list(audio.channel_map)}")
+
     assets_raw = raw.get("assets", {})
     root = Path(assets_raw.get("root", "assets"))
     if not root.is_absolute():
@@ -233,7 +244,7 @@ def load_config(path: Path) -> Config:
         site=_fill(SiteConfig, raw.get("site", {}), "site"),
         schedule=_fill(ScheduleConfig, raw.get("schedule", {}), "schedule"),
         timers=_fill(TimersConfig, raw.get("timers", {}), "timers"),
-        audio=_fill(AudioConfig, raw.get("audio", {}), "audio"),
+        audio=audio,
         discretes=_fill(DiscretesConfig, raw.get("discretes", {}), "discretes"),
         lighting=lighting,
         lightning=_fill(LightningConfig, raw.get("lightning", {}), "lightning"),

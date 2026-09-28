@@ -19,8 +19,9 @@ lights_out_s = 4
 
 [audio]
 backend = "sounddevice"
-device = ""  # substring of the interface name, or blank for the system default
+device = ""  # blank: the first device with enough outputs, USB first; or a substring of its name
 mode = "quad"
+channel_map = [1, 2, 5, 6]  # 7.1 USB card: front pair + surround pair; a 4-out interface is [1, 2, 3, 4]
 samplerate = 48000
 blocksize = 1024
 

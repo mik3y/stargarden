@@ -9,7 +9,7 @@ CONFIGS = Path(__file__).resolve().parent.parent / "configs"
 
 def test_dev_config_loads() -> None:
     cfg = load_config(CONFIGS / "dev.toml")
-    assert cfg.audio.mode is AudioMode.STEREO
+    assert cfg.audio.mode is AudioMode.QUAD and cfg.audio.channel_map == (1, 2, 5, 6)
     assert (cfg.lighting.driver, cfg.lighting.port) == ("enttec_open", "auto")
     assert [f.address for f in cfg.lighting.fixtures] == [1, 39, 77, 115]  # the same four bars as production
     assert cfg.assets_root == (CONFIGS / ".." / "assets-dev")
@@ -47,6 +47,11 @@ def test_defaults_and_unknown_keys(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="unknown keys"):
         load_config(path)
 
+    path.write_text("[audio]\nchannel_map = [1, 2, 5]\n")
+    with pytest.raises(ConfigError, match="channel_map"):
+        load_config(path)
+    path.write_text("[audio]\nchannel_map = [1, 2, 5, 6]\n")
+    assert load_config(path).audio.channel_map == (1, 2, 5, 6)
     path.write_text("[audio]\nmode = 'octo'\n")
     with pytest.raises(ConfigError, match="expected one of"):
         load_config(path)

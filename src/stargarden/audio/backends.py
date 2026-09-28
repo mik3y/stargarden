@@ -61,6 +61,14 @@ class NullBackend(AudioBackend):
 
 
 class SounddeviceBackend(AudioBackend):
+    """PortAudio output. In quad mode the stream is opened with all of the device's
+    output channels and the four mixes are placed on the channels named by
+    `channel_map` (front pair and surround pair of a 7.1 card, say), the rest
+    silent. With no device configured, the first device with enough outputs is
+    used, USB devices first; if there is none and the backend is "auto", the
+    quad field is folded to stereo on the default device instead of going silent.
+    """
+
     name = "sounddevice"
 
     def __init__(self, cfg: AudioConfig) -> None:
@@ -68,15 +76,37 @@ class SounddeviceBackend(AudioBackend):
 
         self._sd = sd
         self._cfg = cfg
-        self._channels = 4 if cfg.mode is AudioMode.QUAD else 2
         self._layout = SpeakerLayout(cfg.speakers)
-        self._device = self._resolve_device(cfg.device)
+        self._slots = tuple(c - 1 for c in cfg.channel_map)  # device channels (0-based) for outputs 1-4
+        self.device, self.channels = self._choose(cfg)
+        self.fold = self.channels == 2
+        info = sd.query_devices(self.device, "output") if self.device is not None else sd.query_devices(kind="output")
+        self.device_name: str = info["name"]
         self._stream = None
 
-    def _resolve_device(self, wanted: str | int | None) -> int | None:
-        if wanted is None or wanted == "":
-            return None
+    def _choose(self, cfg: AudioConfig) -> tuple[int | None, int]:
+        """(device index or None for the default, channels to open)."""
         devices = self._sd.query_devices()
+        quad = cfg.mode is AudioMode.QUAD
+        needed = max(self._slots) + 1 if quad else 2
+        if cfg.device not in (None, ""):
+            index = self._resolve_device(cfg.device, devices)
+            outs = devices[index]["max_output_channels"]
+            if outs < needed:
+                raise ValueError(f"{devices[index]['name']!r} has {outs} output channel(s); this channel map needs {needed}")
+            return index, (outs if quad else 2)
+        if not quad:
+            return None, 2
+        capable = [i for i, d in enumerate(devices) if d["max_output_channels"] >= needed]
+        capable.sort(key=lambda i: "usb" not in devices[i]["name"].lower())  # stable: USB first, then device order
+        if capable:
+            return capable[0], devices[capable[0]]["max_output_channels"]
+        if cfg.backend == "sounddevice":
+            raise ValueError(f"no output device with {needed} channels for quad; set audio.device or audio.channel_map")
+        log.warning("audio: no output device with %d channels; folding quad to stereo on the default device", needed)
+        return None, 2
+
+    def _resolve_device(self, wanted: str | int, devices) -> int:
         if isinstance(wanted, int):
             return wanted
         for i, dev in enumerate(devices):
@@ -84,26 +114,39 @@ class SounddeviceBackend(AudioBackend):
                 return i
         raise ValueError(f"no output device matching {wanted!r}")
 
-    def start(self, render: Render) -> None:
-        fold = self._channels == 2
+    def place(self, quad: np.ndarray, out: np.ndarray) -> None:
+        """Write the mixer's FL/FR/RL/RR block into an output block of `self.channels` columns."""
+        if self.fold:
+            out[:] = fold_to_stereo(quad)
+        else:
+            out.fill(0.0)
+            out[:, list(self._slots)] = self._layout.to_outputs(quad)
 
+    def start(self, render: Render) -> None:
         def callback(outdata: np.ndarray, frames: int, _time, status) -> None:
             if status:
                 log.warning("audio: %s", status)
-            quad = render(frames)
-            outdata[:] = fold_to_stereo(quad) if fold else self._layout.to_outputs(quad)
+            self.place(render(frames), outdata)
 
         self._stream = self._sd.OutputStream(
             samplerate=self._cfg.samplerate,
             blocksize=self._cfg.blocksize,
-            channels=self._channels,
+            channels=self.channels,
             dtype="float32",
-            device=self._device,
+            device=self.device,
             callback=callback,
         )
         self._stream.start()
-        info = self._sd.query_devices(self._stream.device, "output")
-        log.info("audio: %s, %d ch @ %d Hz", info["name"], self._channels, self._cfg.samplerate)
+        if self.fold:
+            log.info("audio: %s, stereo @ %d Hz", self.device_name, self._cfg.samplerate)
+        else:
+            log.info(
+                "audio: %s, quad on channels %s of %d @ %d Hz",
+                self.device_name,
+                list(self._cfg.channel_map),
+                self.channels,
+                self._cfg.samplerate,
+            )
 
     def stop(self) -> None:
         if self._stream:

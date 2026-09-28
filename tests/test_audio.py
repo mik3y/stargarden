@@ -1,4 +1,5 @@
 import math
+import sys
 import time
 from pathlib import Path
 
@@ -128,3 +129,98 @@ def test_voice_fade_out_finishes() -> None:
     assert not v.finished
     v.render(10)
     assert v.finished
+
+
+class _FakeStream:
+    def __init__(self, **kw) -> None:
+        self.kw = kw
+        self.device = kw["device"]
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.started = False
+
+    def close(self) -> None:
+        pass
+
+
+class _FakeSounddevice:
+    """Enough of the sounddevice module for the backend: a device list and an OutputStream."""
+
+    def __init__(self, devices: list[tuple[str, int]], default: int = 0) -> None:
+        self._devices = [{"name": n, "max_output_channels": c, "default_samplerate": 48000.0} for n, c in devices]
+        self._default = default
+        self.streams: list[_FakeStream] = []
+
+    def query_devices(self, device=None, kind=None):
+        if device is None and kind is None:
+            return self._devices
+        return self._devices[self._default if device is None else device]
+
+    def OutputStream(self, **kw) -> _FakeStream:  # noqa: N802 - mirrors sounddevice
+        stream = _FakeStream(**kw)
+        self.streams.append(stream)
+        return stream
+
+
+@pytest.fixture
+def fake_sd(monkeypatch: pytest.MonkeyPatch):
+    def install(devices: list[tuple[str, int]], default: int = 0) -> _FakeSounddevice:
+        fake = _FakeSounddevice(devices, default)
+        monkeypatch.setitem(sys.modules, "sounddevice", fake)
+        return fake
+
+    return install
+
+
+def _run_callback(fake: _FakeSounddevice, quad: np.ndarray) -> np.ndarray:
+    stream = fake.streams[-1]
+    out = np.zeros((quad.shape[0], stream.kw["channels"]), np.float32)
+    stream.kw["callback"](out, quad.shape[0], None, None)
+    return out
+
+
+def test_quad_picks_a_usb_card_and_places_the_four_mixes(fake_sd) -> None:
+    from stargarden.audio.backends import SounddeviceBackend
+    from stargarden.config import AudioConfig, AudioMode
+
+    fake = fake_sd([("MacBook Pro Speakers", 2), ("HDMI", 8), ("USB Sound Device", 8)], default=0)
+    backend = SounddeviceBackend(AudioConfig(mode=AudioMode.QUAD, channel_map=(1, 2, 5, 6)))
+    assert (backend.device, backend.channels, backend.fold, backend.device_name) == (2, 8, False, "USB Sound Device")
+    quad = np.array([[0.1, 0.2, 0.3, 0.4]], np.float32)  # FL, FR, RL, RR
+    backend.start(lambda frames: quad)
+    assert fake.streams[-1].kw["channels"] == 8 and fake.streams[-1].started
+    out = _run_callback(fake, quad)
+    assert out[0].tolist() == pytest.approx([0.1, 0.2, 0.0, 0.0, 0.3, 0.4, 0.0, 0.0])  # FL FR on 1-2, RL RR on 5-6
+    backend.stop()
+
+
+def test_quad_falls_back_to_stereo_on_a_laptop(fake_sd, caplog) -> None:
+    from stargarden.audio.backends import SounddeviceBackend
+    from stargarden.config import AudioConfig, AudioMode
+
+    fake = fake_sd([("MacBook Pro Speakers", 2)])
+    backend = SounddeviceBackend(AudioConfig(mode=AudioMode.QUAD, channel_map=(1, 2, 5, 6)))
+    assert (backend.device, backend.channels, backend.fold) == (None, 2, True)
+    assert "folding quad to stereo" in caplog.text
+    backend.start(lambda frames: np.array([[1.0, 0.0, 0.0, 0.0]], np.float32))
+    out = _run_callback(fake, np.array([[1.0, 0.0, 0.0, 0.0]], np.float32))
+    assert out.shape == (1, 2) and out[0, 0] > 0 and out[0, 1] == 0
+    with pytest.raises(ValueError, match="no output device"):
+        SounddeviceBackend(AudioConfig(backend="sounddevice", mode=AudioMode.QUAD, channel_map=(1, 2, 5, 6)))
+
+
+def test_named_device_must_have_the_channels(fake_sd) -> None:
+    from stargarden.audio.backends import SounddeviceBackend
+    from stargarden.config import AudioConfig, AudioMode
+
+    fake_sd([("Built-in", 2), ("Scarlett 4i4", 4)])
+    backend = SounddeviceBackend(AudioConfig(device="scarlett", mode=AudioMode.QUAD))
+    assert (backend.device, backend.channels) == (1, 4)
+    with pytest.raises(ValueError, match="needs 6"):
+        SounddeviceBackend(AudioConfig(device="scarlett", mode=AudioMode.QUAD, channel_map=(1, 2, 5, 6)))
+    with pytest.raises(ValueError, match="no output device matching"):
+        SounddeviceBackend(AudioConfig(device="motu", mode=AudioMode.QUAD))

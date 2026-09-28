@@ -19,7 +19,8 @@ ambient_theme_rotation_s = 180
 
 [audio]
 backend = "auto"
-mode = "stereo"
+mode = "quad"  # the first device with enough outputs is used (USB first); without one, folds to stereo on the default
+channel_map = [1, 2, 5, 6]  # 7.1 USB card: front pair + surround pair
 
 [discretes]
 min_interval_s = 8

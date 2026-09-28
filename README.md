@@ -34,7 +34,7 @@ Transitions:
 * **Single asyncio process.** One Python process hosts all components; the TUI is just another component and can be disabled (`--headless`) when running under systemd. Audio rendering runs in the PortAudio callback thread; everything else is async tasks.
 * **Lighting is pure Python.** No external lighting desk. The looks we need — slow generative color drift, theme palettes, music-mode intensity, occasional lightning — are simple math over a handful of fixtures, and keeping them in-process keeps lighting locked to program state and audio events. We define our own small fixture profiles.
 * **DMX out via Enttec Open DMX USB.** The widget is a bare FTDI UART with no DMX engine, so we generate the signal ourselves: a transmitter thread streams the latest universe back to back over `pyserial` at 250 kbaud 8N2, producing each frame's break and mark-after-break with the port's break line. The render loop just swaps in new frames at ~30 Hz, and the wire stays alive (holding the last look) even if the loop stalls. The driver is behind a small interface; the DMX USB Pro (which has its own engine and takes snapshots over its framed protocol) is also supported, and other adapters (or sACN) can be added later.
-* **Audio via `sounddevice` (PortAudio) with our own mixer.** A numpy mixing engine renders N layers → per-layer gain → 4-speaker panning, at 48 kHz float32. Quad mode maps FL/FR/RL/RR to outputs 1–4 of a class-compliant USB interface; stereo mode (developer MacBooks) folds the rear channels down with attenuation so spatial effects remain audible.
+* **Audio via `sounddevice` (PortAudio) with our own mixer.** A numpy mixing engine renders N layers → per-layer gain → 4-speaker panning, at 48 kHz float32. Quad mode opens all of the device's outputs and places FL/FR/RL/RR on the channels in `audio.channel_map` (`[1, 2, 5, 6]` for a 7.1 USB card's front and surround pairs; `[1, 2, 3, 4]` for a 4-out interface). With `audio.device` blank the first device with enough outputs is used, USB devices first, on macOS and the Pi alike; with none present and `backend = "auto"`, the field folds to stereo on the default output so a laptop still plays. `scripts/audio_check.py` lists devices and puts a tone on each channel.
 * **Presence via `bleak` passive BLE scanning.** Two Shelly Blu Motion sensors (platform + walkway) broadcasting **unencrypted** BTHome v2 advertisements; no pairing, no bindkeys. Encryption support can be added later if needed.
 * **Two consoles over one control surface.** `console.py` defines what a console shows (a `Status` snapshot, the fixture preview, the log stream) and what it may do (named actions: force a state, fake a sensor, set a level…). The Textual TUI and the web console are both thin views over it, so a new control lands there once and each front end just draws it.
 * **TUI via Textual.** Logs, state display/override, per-layer volume and lighting peak, and (in dev) simulated fixtures and motion injection.
@@ -112,7 +112,7 @@ Production target:
 
 * Raspberry Pi (Raspberry Pi OS), with RTC module for offline timekeeping
 * Enttec Open DMX USB (a DMX USB Pro also works, with `driver = "enttec_pro"`)
-* Class-compliant USB audio interface with ≥4 outputs, into external amplification (4 speakers encircling the space)
+* Class-compliant USB audio interface with ≥4 outputs (a 7.1 USB card works: front pair + surround pair), into external amplification (4 speakers encircling the space)
 * 4× ADJ Jolt Bar FX2, one per corner, addressed back to back from 1 (38 channels each: 1, 39, 77, 115). The type is built in with all 17 of its DMX modes (`type = "jolt_bar_fx2"`, `mode = "38ch"`…); we run it in **38CH**: 4 RGB columns rendered as a gradient, and the white LEDs as their own cells with a separate dimmer and strobe, which is what lightning flashes. Reference material for it lives in `docs/fixtures/`. Generic RGB/RGBW washes are also supported (`type = "generic"`).
 * 2× Shelly Blu Motion (platform, walkway), unencrypted BTHome broadcasts
 
@@ -154,8 +154,8 @@ proxying `/api` and `/ws` to a program running on :7710. `bun run typecheck`
 and `bun run lint` (biome) keep it honest. The same keys work in the browser
 (other than `tab`/`[`/`]`: the levels are sliders there).
 
-The dev config selects stereo output (falling back to a silent clock if PortAudio
-is missing), DMX out through an Enttec Open DMX USB if one is plugged in (the
+The dev config selects quad output on a 7.1 USB card if one is attached (else
+stereo on the default output, or a silent clock if PortAudio is missing), DMX out through an Enttec Open DMX USB if one is plugged in (the
 console shows virtual fixtures regardless; set `driver = "console"` to skip the
 hardware entirely), simulated presence, and a schedule override so it is always
 "night". Console keys:
@@ -232,6 +232,5 @@ keeps running.
 
 ## Open questions
 
-* Exact USB audio interface model for the Pi (any class-compliant 4-out should do; to be validated).
 * Theme design itself — palettes, drift behavior, show looks — will be iterated with the fixtures in hand.
 * Whether the walkway sensor should trigger any audible/visible "greeting" on approach.
