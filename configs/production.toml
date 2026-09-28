@@ -91,5 +91,10 @@ role = "walkway"
 name = "walkway"
 address = "AA:BB:CC:DD:EE:02"
 
+[web]
+enabled = true
+host = "0.0.0.0"  # reachable from a laptop on the Pi's hotspot; there is no login, so keep that network private
+port = 7710
+
 [assets]
 root = "/home/pi/stargarden-assets"

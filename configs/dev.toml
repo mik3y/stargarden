@@ -75,5 +75,9 @@ role = "platform"
 name = "platform"
 address = "3959F0F8-69B9-683D-98F6-D0112B50C4EE"
 
+[web]
+enabled = true  # http://127.0.0.1:7710/ once `bun run build` has been run in web/ (see README)
+port = 7710
+
 [assets]
 root = "../assets-dev"

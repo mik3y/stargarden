@@ -37,6 +37,8 @@ name = "a"
 type = "generic"
 mode = "dim_rgbw"
 address = 1
+[web]
+enabled = false
 [assets]
 root = "{assets}"
 """

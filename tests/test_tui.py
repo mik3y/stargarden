@@ -8,8 +8,9 @@ import pytest
 from stargarden.app import Stargarden
 from stargarden.audio import Layer
 from stargarden.conductor import State
+from stargarden.console import Console, install_log_buffer
 from stargarden.manifest import load_manifest
-from stargarden.tui import StargardenApp, install_log_buffer
+from stargarden.tui import StargardenApp
 from stargarden.tui.app import LogPane, format_record, swatch_rgb
 from test_app import make_config
 
@@ -20,7 +21,7 @@ async def test_console_keys_drive_program(tmp_path, assets) -> None:
     # keys, not timers, drive this test: keep the show and the vacancy timeout out of the way
     config = replace(config, timers=replace(config.timers, show_delay_s=30), presence=replace(config.presence, vacancy_timeout_s=30))
     program = Stargarden(config, load_manifest(config.assets_root), seed=1)
-    app = StargardenApp(program, install_log_buffer("INFO"))
+    app = StargardenApp(Console(program, install_log_buffer("INFO")))
 
     async def drive() -> None:
         async with app.run_test(size=(120, 40)) as pilot:

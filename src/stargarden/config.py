@@ -131,6 +131,15 @@ class PresenceConfig:
 
 
 @dataclass(frozen=True)
+class WebConfig:
+    """The web console (`web.py`): the browser twin of the TUI."""
+
+    enabled: bool = True
+    host: str = "127.0.0.1"  # "0.0.0.0" to reach it from other machines on the site network
+    port: int = 7710
+
+
+@dataclass(frozen=True)
 class Config:
     path: Path
     assets_root: Path
@@ -142,6 +151,7 @@ class Config:
     lighting: LightingConfig = field(default_factory=LightingConfig)
     lightning: LightningConfig = field(default_factory=LightningConfig)
     presence: PresenceConfig = field(default_factory=PresenceConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
 
 def _coerce(kind: Any, value: Any, where: str) -> Any:
@@ -196,7 +206,7 @@ def _table_list(cls: type, items: Any, where: str) -> tuple:
 def load_config(path: Path) -> Config:
     with open(path, "rb") as f:
         raw = tomllib.load(f)
-    known = {"site", "schedule", "timers", "audio", "discretes", "lighting", "lightning", "presence", "assets"}
+    known = {"site", "schedule", "timers", "audio", "discretes", "lighting", "lightning", "presence", "web", "assets"}
     unknown = sorted(set(raw) - known)
     if unknown:
         raise ConfigError(f"{path}: unknown sections {unknown}")
@@ -228,4 +238,5 @@ def load_config(path: Path) -> Config:
         lighting=lighting,
         lightning=_fill(LightningConfig, raw.get("lightning", {}), "lightning"),
         presence=presence,
+        web=_fill(WebConfig, raw.get("web", {}), "web"),
     )

@@ -36,7 +36,9 @@ Transitions:
 * **DMX out via Enttec Open DMX USB.** The widget is a bare FTDI UART with no DMX engine, so we generate the signal ourselves: a transmitter thread streams the latest universe back to back over `pyserial` at 250 kbaud 8N2, producing each frame's break and mark-after-break with the port's break line. The render loop just swaps in new frames at ~30 Hz, and the wire stays alive (holding the last look) even if the loop stalls. The driver is behind a small interface; the DMX USB Pro (which has its own engine and takes snapshots over its framed protocol) is also supported, and other adapters (or sACN) can be added later.
 * **Audio via `sounddevice` (PortAudio) with our own mixer.** A numpy mixing engine renders N layers → per-layer gain → 4-speaker panning, at 48 kHz float32. Quad mode maps FL/FR/RL/RR to outputs 1–4 of a class-compliant USB interface; stereo mode (developer MacBooks) folds the rear channels down with attenuation so spatial effects remain audible.
 * **Presence via `bleak` passive BLE scanning.** Two Shelly Blu Motion sensors (platform + walkway) broadcasting **unencrypted** BTHome v2 advertisements; no pairing, no bindkeys. Encryption support can be added later if needed.
+* **Two consoles over one control surface.** `console.py` defines what a console shows (a `Status` snapshot, the fixture preview, the log stream) and what it may do (named actions: force a state, fake a sensor, set a level…). The Textual TUI and the web console are both thin views over it, so a new control lands there once and each front end just draws it.
 * **TUI via Textual.** Logs, state display/override, per-layer volume and lighting peak, and (in dev) simulated fixtures and motion injection.
+* **Web console via aiohttp + React.** The same panels in a browser (`web/`: bun, vite, React, Material UI, dark), served by the program itself from a small JSON API and a WebSocket stream, so a laptop or phone on the site network can drive the installation without a terminal. No login: the Pi's network is private.
 * **Scheduling via `astral`.** Sunset/sunrise computed from configured lat/long drives `OFF ↔ AMBIENT`.
 * **Config is TOML** (`stdlib tomllib`): a program config plus an assets manifest.
 * **Fully offline in the field.** No network dependency at runtime. Deploys happen by visiting the Pi (rsync over direct link/hotspot). Because the sunset schedule depends on wall-clock time, the production Pi should carry an RTC module (e.g. DS3231); `fake-hwclock` alone drifts across power-offs.
@@ -91,9 +93,18 @@ Sensor MAC addresses are configured; sensors must have BLE encryption disabled i
 
 Computes today's dusk/dawn from configured coordinates and requests `OFF ↔ AMBIENT` transitions, with configurable offsets (e.g. lights from 20 min after sunset until 30 min before sunrise). Manual console overrides always win.
 
-### TUI console
+### Consoles
 
-A Textual app showing recent log lines, current state and timers, presence sensor status, and per-layer volume sliders. Allows forcing/releasing states. In simulation mode it additionally renders virtual fixture color swatches and offers keys to inject platform/walkway motion events.
+Both consoles show the same things — recent log lines, current state and timers, presence sensor status, virtual fixture swatches, per-layer volume and the lighting peak — and offer the same controls: force/release a state, override day/night, fake platform/walkway motion, fire a lightning strike or a discrete sound, toggle debug logging, nudge levels. They share one model, `console.py`:
+
+* `Status` is the snapshot a status panel renders; `Console.fixtures()` is the swatch preview; `LogBuffer` numbers log records so every console reads from where it left off.
+* `Console` methods marked `@action` are the controls, callable by name (`Console.act("force", {"state": "show"})`) with plain JSON-ish arguments, so the web API needs no per-action code.
+
+**TUI** (`tui/app.py`): a Textual app; keys are listed under Development.
+
+**Web** (`web.py` and `web/`): the program serves the built React app and its API on `web.port` (7710 by default, localhost only unless `web.host` says otherwise). `GET /api/status`, `GET /api/fixtures`, `GET /api/log?since=N`, `POST /api/actions/<name>` (JSON body = keyword arguments) and a WebSocket at `/ws` streaming `status` (4 Hz), `fixtures` (10 Hz) and `log` messages. The keyboard shortcuts match the TUI. Actions being plain HTTP, `curl -X POST localhost:7710/api/actions/lightning` works too.
+
+**Adding a control** means: a field on `Status` or an `@action` on `Console` in `console.py`; a key/panel line in `tui/app.py`; the matching type in `web/src/lib/api.ts` and a button or line in `web/src/components/`. Tests for the model go in `tests/test_console.py`.
 
 ## Hardware
 
@@ -132,7 +143,16 @@ uv run python scripts/make_test_assets.py # synthesize stand-in sounds into asse
 uv run stargarden                         # console UI with configs/dev.toml
 uv run stargarden --headless              # logs to stderr instead of the console
 uv run pytest
+
+cd web && bun install && bun run build    # the web console, served at http://127.0.0.1:7710/
 ```
+
+The web console is an ordinary vite project in `web/`: `bun run build` writes
+`web/dist`, which the running program serves (until it is built, the page says
+so). While working on it, `bun start` runs vite on :7711 with hot reload,
+proxying `/api` and `/ws` to a program running on :7710. `bun run typecheck`
+and `bun run lint` (biome) keep it honest. The same keys work in the browser
+(other than `tab`/`[`/`]`: the levels are sliders there).
 
 The dev config selects stereo output (falling back to a silent clock if PortAudio
 is missing), DMX out through an Enttec Open DMX USB if one is plugged in (the
@@ -166,10 +186,13 @@ src/stargarden/
   manifest.py     assets/manifest.toml → beds, discretes, music
   scheduler.py    sunset/sunrise via astral
   lightning.py    strike composition, scheduling, thunder
+  console.py      the control surface shared by the consoles: Status, fixture preview, log buffer, actions
+  web.py          the web console's server: JSON API, WebSocket stream, the built app
   presence/       occupancy model, BTHome parser, bleak scanner
   lighting/       fixtures & patch, themes, render engine, DMX drivers
   audio/          decoders, quad panner, streaming sources, mixer, backends, engine
   tui/            Textual console
+web/              the web console (bun + vite + React + Material UI); builds to web/dist
 configs/          dev.toml (simulation) and production.toml (Pi template)
 docs/             lighting-concepts.md (vocabulary appendix), fixtures/ (reference files)
 scripts/          make_test_assets.py
@@ -194,6 +217,11 @@ in coordinates, sensor MACs, the DMX patch, and the audio device; rsync the
 assets directory to `assets.root`; run `stargarden --config <site>.toml
 --headless` from a systemd unit (`Restart=always`). Fit an RTC module so the
 sunset schedule survives power cycles offline.
+
+The Pi has no node: build the web console on the laptop (`cd web && bun run
+build`) before rsyncing the repo, so `web/dist` travels with it. The production
+config binds it to every interface on port 7710; open `http://<pi>:7710/` from
+a laptop on the Pi's network. There is no login, so that network stays private.
 
 The Open DMX USB appears as a plain FTDI serial port (`ftdi_sio`, no extra
 driver); the service user needs to be in the `dialout` group, and

@@ -16,6 +16,7 @@ def test_dev_config_loads() -> None:
     assert cfg.schedule.enabled is False
     assert cfg.lightning.states == ("presence",) and cfg.lightning.mean_interval_s == 120
     assert cfg.audio.speakers[2] == (-1.0, -1.0)
+    assert (cfg.web.enabled, cfg.web.host, cfg.web.port) == (True, "127.0.0.1", 7710)
 
 
 def test_production_config_loads() -> None:
@@ -26,6 +27,7 @@ def test_production_config_loads() -> None:
     assert cfg.presence.sensors[0].role is SensorRole.PLATFORM
     assert cfg.audio.levels.music == 0.9
     assert cfg.lightning.mean_interval_s == 1200 and cfg.lightning.thunder_delay_s == (0.3, 2.5)
+    assert cfg.web.host == "0.0.0.0"  # the laptop on the Pi's hotspot reaches the console
 
 
 def test_defaults_and_unknown_keys(tmp_path: Path) -> None:

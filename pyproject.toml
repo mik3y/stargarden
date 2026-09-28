@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "aiohttp>=3.11",
     "astral>=3.2",
     "bleak>=1.0",
     "numpy>=2.2",

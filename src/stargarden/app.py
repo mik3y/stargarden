@@ -4,6 +4,7 @@ conductor transitions into audio and lighting commands."""
 import asyncio
 import logging
 import random
+from collections.abc import Coroutine, Iterable
 
 from .audio import AudioEngine
 from .conductor import Conductor, State
@@ -82,13 +83,14 @@ class Stargarden:
             coros.append(BlePresenceSource(self.occupancy, self.config.presence.sensors).run())
         return coros
 
-    async def run(self, foreground=None) -> None:
-        """Run all components; if `foreground` (e.g. the TUI) is given, stop when it returns."""
+    async def run(self, foreground=None, background: Iterable[Coroutine] = ()) -> None:
+        """Run all components plus any extra `background` coroutines (e.g. the web console);
+        if `foreground` (e.g. the TUI) is given, stop when it returns."""
         self._loop = asyncio.get_running_loop()
         self.audio.start()
         try:
             async with asyncio.TaskGroup() as tg:
-                self._tasks = [tg.create_task(coro) for coro in self.background_tasks()]
+                self._tasks = [tg.create_task(coro) for coro in (*self.background_tasks(), *background)]
                 if foreground is not None:
                     await foreground
                     self.shutdown()

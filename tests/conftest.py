@@ -1,8 +1,18 @@
+import logging
 import wave
 from pathlib import Path
 
 import numpy as np
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def restore_root_logger():
+    """`install_log_buffer` replaces the root logger's handlers and level; put them back after each test."""
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    yield
+    root.handlers, root.level = handlers, level
 
 
 class FakeClock:
