@@ -26,6 +26,23 @@ def test_strike_ripples_outward_from_the_origin() -> None:
     assert strike.duration == max(f.end for fs in strike.flashes.values() for f in fs) > 0.3  # includes the afterglow
 
 
+def test_strike_is_a_punch_then_fast_return_strokes() -> None:
+    from stargarden.lightning import MAIN_FLASH_S, RESTRIKE_S
+
+    counts = []
+    for seed in range(40):
+        strike = compose_strike(random.Random(seed), POSITIONS, "ne", (0.3, 2.5))
+        main = [f for f in sorted(strike.flashes["ne"], key=lambda f: f.start) if f.level == 1.0 and not f.strobe][0]
+        assert MAIN_FLASH_S[0] <= main.end - main.start <= MAIN_FLASH_S[1]
+        strokes = [f for f in strike.flashes["ne"] if f.start > main.start and f.level >= 0.8]
+        counts.append(len(strokes))
+        assert 1 <= len(strokes) <= 3
+        for f in strokes:
+            assert RESTRIKE_S[0] <= f.end - f.start <= RESTRIKE_S[1] < main.end - main.start
+        assert strokes[0].start - main.end < 0.1  # immediate
+    assert sum(c >= 2 for c in counts) > len(counts) * 0.6  # two or three is the norm
+
+
 def test_successive_strikes_differ() -> None:
     rng = random.Random(7)
     a = compose_strike(rng, POSITIONS, "ne", (0.3, 2.5))

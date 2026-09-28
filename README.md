@@ -73,7 +73,7 @@ A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift wi
 A layer of its own, independent of the themes (`lightning.py`). Strikes arrive at random — about one per `mean_interval_s` (20 minutes by default), never closer than `min_interval_s`, and only in the configured program states (`PRESENCE` by default, so an empty forest stays calm). Each strike is composed fresh from the RNG:
 
 * an **origin**: one of the fixtures, never the same tree twice in a row;
-* an optional faint **leader** flicker, then 1–3 **primary** flashes at the origin (40–120 ms, white cells at full, sometimes with the hardware strobe engaged for crackle);
+* an optional faint **leader** flicker, then the **punch**: one long solid flash at the origin (120–220 ms, white cells at full), followed within a few tens of milliseconds by 1–3 short **return strokes** (30–70 ms, usually two or three, nearly as bright, sometimes with the hardware strobe engaged for crackle);
 * a **ripple**: every other fixture repeats each flash later and dimmer with distance (fixtures without white cells push their color toward white instead), then a short afterglow at the origin;
 * **thunder** after 0.3–2.5 s, one of the manifest's `[[thunder]]` sounds (never the same one twice in a row), louder for short delays, panned to the origin and rolling slightly toward the center of the space.
 

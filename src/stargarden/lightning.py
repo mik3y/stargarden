@@ -25,6 +25,9 @@ from .manifest import DiscreteEntry, Manifest
 log = logging.getLogger(__name__)
 
 LIGHTNING_COLOR = (0.85, 0.9, 1.0)  # for fixtures with no white cells to flash
+MAIN_FLASH_S = (0.12, 0.22)  # the first flash, the punch
+RESTRIKE_S = (0.03, 0.07)  # each return stroke
+RESTRIKES = (1, 2, 2, 3, 3)  # how many return strokes follow, drawn uniformly: usually two or three
 
 
 @dataclass(frozen=True)
@@ -61,22 +64,28 @@ def compose_strike(
     def add(name: str, start: float, duration: float, level: float, strobe: bool = False, level_end: float | None = None) -> None:
         flashes[name].append(Flash(start, start + duration, min(1.0, level), level_end, strobe))
 
+    def flash(t: float, dur: float, level: float, strobe: bool) -> None:
+        add(origin, t, dur, level, strobe=strobe)
+        for name, (x, y) in positions.items():  # the ripple: later and dimmer with distance
+            if name == origin:
+                continue
+            distance = math.hypot(x - ox, y - oy)
+            ripple = level * max(0.0, 0.8 - 0.3 * distance) * rng.uniform(0.85, 1.15)  # neighbors ~0.3, the far corner ~0.1
+            if ripple > 0.03:
+                add(name, t + distance * rng.uniform(0.02, 0.06), dur * rng.uniform(0.6, 1.0), ripple)
+
     t = 0.0
     if rng.random() < 0.3:  # a faint leader flicker before the main strike
         dur = rng.uniform(0.02, 0.04)
         add(origin, t, dur, rng.uniform(0.15, 0.3))
         t += dur + rng.uniform(0.05, 0.15)
-    for _ in range(rng.choice((1, 1, 2, 2, 3))):
-        dur = rng.uniform(0.04, 0.12)
-        add(origin, t, dur, 1.0, strobe=rng.random() < 0.5)
-        for name, (x, y) in positions.items():  # the ripple: later and dimmer with distance
-            if name == origin:
-                continue
-            distance = math.hypot(x - ox, y - oy)
-            level = max(0.0, 0.8 - 0.3 * distance) * rng.uniform(0.85, 1.15)  # neighbors ~0.3, the far corner ~0.1
-            if level > 0.03:
-                add(name, t + distance * rng.uniform(0.02, 0.06), dur * rng.uniform(0.6, 1.0), level)
-        t += dur + rng.uniform(0.04, 0.2)
+    dur = rng.uniform(MAIN_FLASH_S[0], MAIN_FLASH_S[1])  # the punch: one long solid flash at full
+    flash(t, dur, 1.0, strobe=False)
+    t += dur + rng.uniform(0.03, 0.08)
+    for _ in range(rng.choice(RESTRIKES)):  # return strokes: short, fast, nearly as bright, sometimes crackling
+        dur = rng.uniform(RESTRIKE_S[0], RESTRIKE_S[1])
+        flash(t, dur, rng.uniform(0.8, 1.0), strobe=rng.random() < 0.4)
+        t += dur + rng.uniform(0.03, 0.10)
     add(origin, t, 0.3, 0.15, level_end=0.0)  # afterglow
     end = max(f.end for fs in flashes.values() for f in fs)
     return Strike(origin, (ox, oy), {k: tuple(v) for k, v in flashes.items()}, end, rng.uniform(*thunder_delay))
