@@ -147,13 +147,16 @@ class TideTheme(Theme):
     cosine of time, fastest mid-lap and still at each turn, so nothing ever
     jolts. Away from the crest the columns hold a dim deep green, with a faint
     slower ripple running the other way round so the trough is never flat.
-    Colors stay on the green line, from moss to spring green, never toward white.
+    Colors stay on the green line, from moss to spring green, nearly pure so the
+    LEDs read green rather than lime.
     """
 
     name: str
-    trough: RGB = (0.0, 0.12, 0.03)  # moss
-    mid: RGB = (0.05, 0.55, 0.10)  # leaf
-    crest: RGB = (0.40, 1.0, 0.20)  # spring green
+    # DMX is linear light, so a little red or blue drives the LEDs far harder than the same
+    # value looks on a screen swatch: keep the greens nearly pure or the crest washes to lime.
+    trough: RGB = (0.0, 0.12, 0.02)  # moss
+    mid: RGB = (0.02, 0.55, 0.03)  # leaf
+    crest: RGB = (0.10, 1.0, 0.04)  # spring green
     laps: float = 1.0  # around the ring before turning back
     period_s: float = 64.0  # there and back
     width: float = 4.0  # columns from the crest's centre to its edge, a bar's worth each side
