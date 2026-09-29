@@ -168,7 +168,7 @@ hardware entirely), simulated presence, and a schedule override so it is always
 | `n` | toggle day/night override |
 | `l` / `s` | trigger a lightning strike / a discrete sound |
 | `t` | next lighting program in the current mode's pool, in a fixed order |
-| `c` | toggle the setup check: a tone on speaker N and dim red/green/blue/white on bar N, corner by corner |
+| `c` | toggle the setup check: a tone on speaker N and dim red/green/blue/white left to right on bar N, corner by corner |
 | `d` | toggle DEBUG-level logging in the log pane |
 | `tab`, `[`, `]` | select an audio layer or the lighting peak, nudge it |
 | `q` | quit |

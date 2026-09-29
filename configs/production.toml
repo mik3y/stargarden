@@ -3,8 +3,8 @@
 
 [site]
 name = "Stargarden"
-latitude = 0.0
-longitude = 0.0
+latitude = 37.7749
+longitude = -122.4194
 timezone = "America/Los_Angeles"
 
 [schedule]
@@ -85,12 +85,7 @@ vacancy_timeout_s = 900
 [[presence.sensors]]
 role = "platform"
 name = "platform"
-address = "AA:BB:CC:DD:EE:01"
-
-[[presence.sensors]]
-role = "walkway"
-name = "walkway"
-address = "AA:BB:CC:DD:EE:02"
+address = "C0:2C:ED:43:73:40"
 
 [web]
 enabled = true

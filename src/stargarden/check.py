@@ -1,12 +1,14 @@
-"""The setup check: corner by corner, a soft tone on that speaker and a dim red,
-green, blue, white sequence on that bar, round and round.
+"""The setup check: corner by corner, a soft tone on that speaker and, on that
+bar, dim red, green, blue, white across its columns left to right, a second
+each, round and round.
 
 For wiring up the site: it shows which output feeds which speaker, which DMX
-address lights which bar, and that a bar's white cells answer. Corner N is
-audio output N (the mixer's FL, FR, RL, RR in order) and the Nth fixture in the
-patch. The program is pinned to OFF while the check runs, so nothing else
-plays or lights; the colors are an overlay, exempt from the master fade, so
-they show at once. Stopping hands the forced state back to what it was.
+address lights which bar, which way round the bar hangs (red is its left end),
+and that its white cells answer. Corner N is audio output N (the mixer's FL,
+FR, RL, RR in order) and the Nth fixture in the patch. The program is pinned
+to OFF while the check runs, so nothing else plays or lights; the colors are
+an overlay, exempt from the master fade, so they show at once. Stopping hands
+the forced state back to what it was.
 """
 
 import asyncio
@@ -20,23 +22,19 @@ from .audio.panner import CHANNELS
 from .audio.sources import ClipSource
 from .conductor import Conductor, State
 from .lighting import LightingEngine, Patch
-from .lighting.color import BLACK, RGB
-from .lighting.fixtures import CellKind, FixtureFrame
+from .lighting.color import RGB
+from .lighting.fixtures import CellKind, Fixture, FixtureFrame
 
 log = logging.getLogger(__name__)
 
-COLORS: tuple[tuple[str, RGB], ...] = (
-    ("red", (1.0, 0.0, 0.0)),
-    ("green", (0.0, 1.0, 0.0)),
-    ("blue", (0.0, 0.0, 1.0)),
-    ("white", (1.0, 1.0, 1.0)),
-)
+COLORS: tuple[RGB, ...] = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (1.0, 1.0, 1.0))  # by column, left to right
+WHITE_COLUMN = 3  # the column whose white cells light too
 LEVEL = 0.3  # dim: enough to tell the color, not to light the trees
-STEP_S = 1.5  # per color, so a corner takes six seconds
+STEP_S = 1.0  # per corner
 CORNERS = 4
 PITCHES_HZ = (330.0, 392.0, 440.0, 523.0)  # rising by corner, so the ear can count along
-TONE_S = 0.6
-TONE_GAIN = 0.25
+TONE_S = 0.5
+TONE_GAIN = 0.3
 
 
 class Channel(Spatializer):
@@ -58,13 +56,22 @@ def tone(samplerate: int, hz: float, seconds: float, gain: float) -> np.ndarray:
     return (gain * np.sin(2 * np.pi * hz * t) * env).astype(np.float32)[:, None]
 
 
-class CheckOverlay:
-    """Everything dark but one fixture in one color, until told it is done."""
+def columns(fixture: Fixture) -> dict[str, int]:
+    """Each cell's column, left to right, from its position in the fixture; white
+    cells take the column of the color cells they sit among."""
+    xs = sorted({c.position[0] for c in fixture.mode.color_cells}) or [0.5]
+    out = {}
+    for cell in fixture.mode.cells:
+        out[cell.name] = min(range(len(xs)), key=lambda i: abs(xs[i] - cell.position[0]))
+    return out
 
-    def __init__(self) -> None:
+
+class CheckOverlay:
+    """Everything dark but one fixture, showing COLORS across its columns, until told it is done."""
+
+    def __init__(self, patch: Patch) -> None:
+        self._columns = [columns(f) for f in patch.fixtures]
         self.fixture: int | None = None
-        self.color: RGB = BLACK
-        self.white = False  # the white step also lights the fixture's white cells
         self.done = False
 
     def finished(self, t: float) -> bool:
@@ -77,10 +84,11 @@ class CheckOverlay:
                 state.intensity, state.strobe = 0.0, 0.0
                 if i != self.fixture:
                     continue
+                col = self._columns[i][cell.name] % len(COLORS)
                 if cell.kind is CellKind.WHITE:
-                    state.intensity = LEVEL if self.white else 0.0
+                    state.intensity = LEVEL if col == WHITE_COLUMN else 0.0
                 else:
-                    state.color, state.intensity = self.color, LEVEL
+                    state.color, state.intensity = COLORS[col], LEVEL
 
 
 class SetupCheck:
@@ -103,10 +111,10 @@ class SetupCheck:
             return
         self._restore = self._conductor.forced
         self._conductor.force(State.OFF)
-        self._overlay = CheckOverlay()
+        self._overlay = CheckOverlay(self._patch)
         self._lighting.add_overlay(self._overlay)
         self._task = asyncio.get_running_loop().create_task(self._run(self._overlay))
-        log.info("check: on; a tone on each speaker and red/green/blue/white on each bar, corner by corner")
+        log.info("check: on; a tone on each speaker and red/green/blue/white left to right on each bar, corner by corner")
 
     def stop(self) -> None:
         if not self.running:
@@ -125,12 +133,10 @@ class SetupCheck:
                 self.corner = k
                 fixture = self._patch.fixtures[k].name if k < len(self._patch) else "no fixture"
                 log.info("check: corner %d: speaker %d, %s", k + 1, k + 1, fixture)
-                for name, color in COLORS:
-                    overlay.fixture = k if k < len(self._patch) else None
-                    overlay.color, overlay.white = color, name == "white"
-                    if k < CORNERS:
-                        self._beep(k)
-                    await asyncio.sleep(STEP_S)
+                overlay.fixture = k if k < len(self._patch) else None
+                if k < CORNERS:
+                    self._beep(k)
+                await asyncio.sleep(STEP_S)
 
     def _beep(self, k: int) -> None:
         rate = self._audio.cfg.samplerate
