@@ -286,6 +286,12 @@ class Console:
         return self.program.audio.fire_discrete()
 
     @action
+    def next_theme(self) -> str:
+        """Step to the next lighting program in the current mode's pool (show themes during a show,
+        ambient ones otherwise), in a fixed order; returns its name."""
+        return self.program.next_theme().name
+
+    @action
     def set_level(self, name: str, value: float) -> float:
         """Set an audio layer's level or the lighting peak (0..1)."""
         if name not in LEVELS:

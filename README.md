@@ -95,7 +95,7 @@ Computes today's dusk/dawn from configured coordinates and requests `OFF ↔ AMB
 
 ### Consoles
 
-Both consoles show the same things — recent log lines, current state and timers, presence sensor status, virtual fixture swatches, per-layer volume and the lighting peak — and offer the same controls: force/release a state, override day/night, fake platform/walkway motion, fire a lightning strike or a discrete sound, toggle debug logging, nudge levels. They share one model, `console.py`:
+Both consoles show the same things — recent log lines, current state and timers, presence sensor status, virtual fixture swatches, per-layer volume and the lighting peak — and offer the same controls: force/release a state, override day/night, fake platform/walkway motion, fire a lightning strike or a discrete sound, step to the next lighting program, toggle debug logging, nudge levels. They share one model, `console.py`:
 
 * `Status` is the snapshot a status panel renders; `Console.fixtures()` is the swatch preview; `LogBuffer` numbers log records so every console reads from where it left off.
 * `Console` methods marked `@action` are the controls, callable by name (`Console.act("force", {"state": "show"})`) with plain JSON-ish arguments, so the web API needs no per-action code.
@@ -167,6 +167,7 @@ hardware entirely), simulated presence, and a schedule override so it is always
 | `r` | release the forced state |
 | `n` | toggle day/night override |
 | `l` / `s` | trigger a lightning strike / a discrete sound |
+| `t` | next lighting program in the current mode's pool, in a fixed order |
 | `d` | toggle DEBUG-level logging in the log pane |
 | `tab`, `[`, `]` | select an audio layer or the lighting peak, nudge it |
 | `q` | quit |

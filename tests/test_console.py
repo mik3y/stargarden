@@ -10,6 +10,7 @@ from stargarden.audio import Layer
 from stargarden.conductor import State
 from stargarden.config import SensorRole
 from stargarden.console import LEVELS, ActionError, Console, LogBuffer, UnknownAction, install_log_buffer, record_to_dict
+from stargarden.lighting.themes import AMBIENT_THEMES
 from stargarden.manifest import load_manifest
 from test_app import make_config
 
@@ -73,6 +74,12 @@ def test_actions_by_name(console: Console) -> None:
     assert console.act("toggle_debug") is False
     assert console.act("discrete") is True
     console.act("lightning")
+    # the next lighting program, in pool order, sticking as the ambient theme; it wraps round
+    names = list(AMBIENT_THEMES)
+    start = p.lighting.theme.name
+    walked = [console.act("next_theme") for _ in names]
+    assert walked == [names[(names.index(start) + k + 1) % len(names)] for k in range(len(names))]
+    assert p.ambient_theme.name == start and p.lighting.theme.name == start
     assert p.lighting._overlays
 
 

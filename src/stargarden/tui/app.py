@@ -32,6 +32,7 @@ KEYS = (
     ("r", "release forced state"),
     ("n", "toggle day / night"),
     ("l / s", "lightning / discrete sound"),
+    ("t", "next lighting program"),
     ("d", "debug logging"),
     ("tab [ ]", "select level, nudge −/+"),
     ("q", "quit"),
@@ -112,6 +113,7 @@ class StargardenApp(App):
         Binding("n", "toggle_night", "Day/night"),
         Binding("l", "lightning", "Lightning"),
         Binding("s", "discrete", "Sound"),
+        Binding("t", "next_theme", "Next lights"),
         Binding("d", "toggle_debug", "Debug log"),
         Binding("tab", "next_level", "Level", priority=True),
         Binding("left_square_bracket", "level(-1)", "Level −", key_display="["),
@@ -239,6 +241,10 @@ class StargardenApp(App):
 
     def action_discrete(self) -> None:
         self.control.discrete()
+
+    def action_next_theme(self) -> None:
+        self.control.next_theme()
+        self.refresh_status()
 
     def action_toggle_debug(self) -> None:
         self.control.toggle_debug()

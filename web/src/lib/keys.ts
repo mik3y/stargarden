@@ -19,6 +19,7 @@ export const SHORTCUTS: Shortcut[] = [
   { key: "n", action: "toggle_night" },
   { key: "l", action: "lightning" },
   { key: "s", action: "discrete" },
+  { key: "t", action: "next_theme" },
   { key: "d", action: "toggle_debug" },
 ];
 

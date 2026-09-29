@@ -11,7 +11,7 @@ from .conductor import Conductor, State
 from .config import Config, ConfigError, SensorRole
 from .lighting import LightingEngine, Patch
 from .lighting.drivers import make_driver
-from .lighting.themes import Theme, get_theme, pick_ambient, pick_show
+from .lighting.themes import AMBIENT_THEMES, SHOW_THEMES, Theme, get_theme, pick_ambient, pick_show
 from .lightning import Lightning
 from .manifest import Manifest, MusicEntry
 from .presence import OccupancyModel
@@ -120,6 +120,25 @@ class Stargarden:
             if self.conductor.state in (State.AMBIENT, State.PRESENCE):
                 self.ambient_theme = pick_ambient(self.rng, avoid=self.ambient_theme)
                 self.lighting.set_theme(self.ambient_theme, fade_s=60.0)
+
+    def next_theme(self, fade_s: float = 3.0) -> Theme:
+        """Step to the next lighting program in the current mode's pool, in the pool's
+        fixed order: a deterministic walk for trying them by hand, unlike the random
+        rotation. During a show it steps the show pool; otherwise the ambient one, and
+        the choice holds until the rotation next moves on."""
+        showing = self.conductor.state is State.SHOW
+        pool = list((SHOW_THEMES if showing else AMBIENT_THEMES).values())
+        current = self.lighting.theme
+        theme = pool[(pool.index(current) + 1) % len(pool)] if current in pool else pool[0]
+        if theme is current:
+            log.info("lighting: %s is the only %s theme", theme.name, "show" if showing else "ambient")
+            return theme
+        if showing:
+            self.show_theme = theme
+        else:
+            self.ambient_theme = theme
+        self.lighting.set_theme(theme, fade_s=fade_s)
+        return theme
 
     # -- transitions ----------------------------------------------------------
 

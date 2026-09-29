@@ -2,6 +2,7 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import DirectionsWalkIcon from "@mui/icons-material/DirectionsWalk";
 import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import HikingIcon from "@mui/icons-material/Hiking";
+import PaletteIcon from "@mui/icons-material/Palette";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
@@ -17,7 +18,7 @@ import { keyFor } from "@/lib/keys";
 /**
  * One-shot actions: fake a sensor (the platform sensor starts a visit, the
  * walkway one only refreshes it), fire a lightning strike or a discrete
- * sound, and the debug-logging switch.
+ * sound, step to the next lighting program, and the debug-logging switch.
  */
 const ActionsCard = ({ status, act }: { status: Status | null; act: Act }) => (
   <Card>
@@ -64,6 +65,15 @@ const ActionsCard = ({ status, act }: { status: Status | null; act: Act }) => (
         >
           sound
           <Kbd>{keyFor("discrete")}</Kbd>
+        </Button>
+        <Button
+          variant="outlined"
+          color="secondary"
+          startIcon={<PaletteIcon />}
+          onClick={() => act("next_theme")}
+        >
+          next lights
+          <Kbd>{keyFor("next_theme")}</Kbd>
         </Button>
       </Stack>
       <FormControlLabel

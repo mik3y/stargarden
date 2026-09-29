@@ -54,7 +54,7 @@ async def test_api_and_stream(tmp_path: Path, assets: Path) -> None:
             assert r.status == 400
 
             fixtures = await (await client.get("/api/fixtures")).json()
-            assert [f["name"] for f in fixtures] == ["a"] and fixtures[0]["rows"][0][0]["rgb"][0] > 0  # ambient is lit
+            assert [f["name"] for f in fixtures] == ["a"] and max(fixtures[0]["rows"][0][0]["rgb"]) > 0  # ambient is lit
             log = await (await client.get("/api/log?since=0")).json()
             assert any("manual: force" in line["msg"] for line in log["lines"]) and log["next"] == len(log["lines"])
             tail = await (await client.get(f"/api/log?since={log['next']}")).json()
