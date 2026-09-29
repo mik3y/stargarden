@@ -6,7 +6,7 @@ from stargarden.config import ConfigError, FixtureConfig, LightingConfig, Profil
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
 from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
-from stargarden.lighting.themes import AMBIENT_THEMES, DRIFT_THEMES, SHOW_THEMES, ChaseTheme, Spot, get_theme
+from stargarden.lighting.themes import AMBIENT_THEMES, DRIFT_THEMES, SHOW_THEMES, ChaseTheme, Spot, TideTheme, get_theme
 
 
 def make_cfg(*fixtures: FixtureConfig, **kw) -> LightingConfig:
@@ -91,6 +91,43 @@ def test_ember_waves_void_columns_and_palette() -> None:
     # the wave moves: a fixed spot sees a crest and a trough within one period
     levels = [theme.intensity(grid[(0, 0)], t) for t in [i * 0.25 for i in range(60)]]
     assert max(levels) > 0.8 and min(levels) < 0.4
+
+
+def test_green_tide_washes_round_the_ring_and_back() -> None:
+    theme = get_theme("green-tide")
+    assert isinstance(theme, TideTheme)
+    n = 16
+    ring = [Spot(r // 4, 4, r % 4, 4, 0, 2, ring=r, ring_count=n) for r in range(n)]
+    period = theme.period_s
+
+    def head(t: float) -> int:
+        return max(range(n), key=lambda r: theme.intensity(ring[r], t))
+
+    # out: the crest advances clockwise through the first half of the cycle, fastest in the middle
+    heads = [head(period / 4 + k * 2.0) for k in range(5)]
+    assert all(1 <= (b - a) % n <= 2 for a, b in zip(heads, heads[1:], strict=False)), heads
+    # back: counter-clockwise through the second half
+    heads = [head(3 * period / 4 + k * 2.0) for k in range(5)]
+    assert all(1 <= (a - b) % n <= 2 for a, b in zip(heads, heads[1:], strict=False)), heads
+    # it turns gently: the crest is still at the ends of the cycle and back where it started
+    assert theme.head(ring[0], 0.0) == pytest.approx(0.0) and theme.head(ring[0], period / 2) == pytest.approx(n)
+    assert abs(theme.head(ring[0], 0.5) - theme.head(ring[0], 0.0)) < 0.05
+    # the rendered crest sits where head() says, and the far side of the ring is dim
+    for t in (5.0, 21.0, 40.0, 58.0):
+        h = theme.head(ring[0], t)
+        assert min((head(t) - h) % n, (h - head(t)) % n) <= 1.0
+        far = ring[int(round(h + n / 2)) % n]
+        assert theme.intensity(far, t) < 0.5 < theme.intensity(ring[int(round(h)) % n], t)
+    # green throughout: every column, every time, and the whole bar's height lights as one column
+    for t in (0.0, 7.3, 19.0, 33.3, 50.1):
+        for spot in ring:
+            r, g, b = theme.color(spot, t)
+            assert g > r and g > b and b <= 0.2 and g >= 0.1
+            twin = Spot(spot.fixture, spot.count, spot.col, spot.cols, 1 - spot.row, spot.rows, ring=spot.ring, ring_count=n)
+            assert theme.intensity(spot, t) == pytest.approx(theme.intensity(twin, t))
+    # a fixed column sees the crest come and go within a cycle
+    levels = [theme.intensity(ring[5], k * 0.5) for k in range(int(period * 2))]
+    assert max(levels) > 0.9 and min(levels) < 0.45
 
 
 def test_orbit_chases_both_ways_then_dances() -> None:

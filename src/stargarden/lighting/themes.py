@@ -5,8 +5,10 @@ spot is a fixture in the patch and, for zoned fixtures, a cell of its grid.
 DriftTheme walks each fixture around a palette with a per-fixture phase offset,
 so the trees share a mood without moving in unison. WaveTheme, the ambient
 program, sends waves of amber and orange along the bars with every other
-column dark. ChaseTheme, the show program, runs a column of light around the
-room one way, then the other, then breaks into an odd/even dance.
+column dark. TideTheme, the other ambient program, washes a broad green swell
+around the ring of columns and back. ChaseTheme, the show program, runs a
+column of light around the room one way, then the other, then breaks into an
+odd/even dance.
 """
 
 import math
@@ -135,6 +137,53 @@ class WaveTheme(Theme):
         return self.brightness * level * self.gate(spot, t)
 
 
+@dataclass(frozen=True)
+class TideTheme(Theme):
+    """A swell of green washing around the ring and back.
+
+    One broad crest, about a bar wide, travels clockwise around the ring of
+    columns (each bar counting as its four columns), eases to a stop, washes
+    back the other way, and repeats. The crest's place on the ring follows a
+    cosine of time, fastest mid-lap and still at each turn, so nothing ever
+    jolts. Away from the crest the columns hold a dim deep green, with a faint
+    slower ripple running the other way round so the trough is never flat.
+    Colors stay on the green line, from moss to spring green, never toward white.
+    """
+
+    name: str
+    trough: RGB = (0.0, 0.12, 0.03)  # moss
+    mid: RGB = (0.05, 0.55, 0.10)  # leaf
+    crest: RGB = (0.40, 1.0, 0.20)  # spring green
+    laps: float = 1.0  # around the ring before turning back
+    period_s: float = 64.0  # there and back
+    width: float = 4.0  # columns from the crest's centre to its edge, a bar's worth each side
+    ripple_share: float = 0.18  # the counter-running ripple's share of the blend
+    ripple_cycles: int = 2  # ripple crests around the ring; a whole number, so it meets itself at the seam
+    ripple_period_s: float = 21.0
+    trough_level: float = 0.3  # intensity in a trough, relative to a crest
+    brightness: float = 1.0
+
+    def head(self, spot: Spot, t: float) -> float:
+        """The crest's position on the ring, in columns from where it starts; clockwise out, back again."""
+        u = (t / self.period_s) % 1.0
+        return self.laps * spot.ring_count * (0.5 - 0.5 * math.cos(2 * math.pi * u))
+
+    def wave(self, spot: Spot, t: float) -> float:
+        """0 in a trough, 1 at the crest."""
+        n = spot.ring_count
+        d = (spot.ring - self.head(spot, t) + n / 2) % n - n / 2  # signed distance to the crest, the short way round
+        crest = 0.5 + 0.5 * math.cos(math.pi * d / self.width) if abs(d) < self.width else 0.0
+        ripple = 0.5 + 0.5 * math.sin(2 * math.pi * (self.ripple_cycles * spot.ring / n + t / self.ripple_period_s))
+        return (1.0 - self.ripple_share) * crest + self.ripple_share * ripple
+
+    def color(self, spot: Spot, t: float) -> RGB:
+        w = self.wave(spot, t)
+        return mix(self.trough, self.mid, w * 2.0) if w < 0.5 else mix(self.mid, self.crest, (w - 0.5) * 2.0)
+
+    def intensity(self, spot: Spot, t: float) -> float:
+        return self.brightness * (self.trough_level + (1.0 - self.trough_level) * self.wave(spot, t))
+
+
 def _smoothstep(x: float) -> float:
     x = min(1.0, max(0.0, x))
     return x * x * (3.0 - 2.0 * x)
@@ -236,7 +285,7 @@ class ChaseTheme(Theme):
         return self.sample(spot, t)[1]
 
 
-AMBIENT_THEMES: dict[str, Theme] = {t.name: t for t in (WaveTheme("ember-waves"),)}
+AMBIENT_THEMES: dict[str, Theme] = {t.name: t for t in (WaveTheme("ember-waves"), TideTheme("green-tide"))}
 SHOW_THEMES: dict[str, Theme] = {t.name: t for t in (ChaseTheme("orbit"),)}
 
 DRIFT_THEMES: dict[str, Theme] = {
