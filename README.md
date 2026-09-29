@@ -95,7 +95,7 @@ Computes today's dusk/dawn from configured coordinates and requests `OFF ↔ AMB
 
 ### Consoles
 
-Both consoles show the same things — recent log lines, current state and timers, presence sensor status, virtual fixture swatches, per-layer volume and the lighting peak — and offer the same controls: force/release a state, override day/night, fake platform/walkway motion, fire a lightning strike or a discrete sound, step to the next lighting program, toggle debug logging, nudge levels. They share one model, `console.py`:
+Both consoles show the same things — recent log lines, current state and timers, presence sensor status, virtual fixture swatches, per-layer volume and the lighting peak — and offer the same controls: force/release a state, override day/night, fake platform/walkway motion, fire a lightning strike or a discrete sound, step to the next lighting program, run the setup check, toggle debug logging, nudge levels. They share one model, `console.py`:
 
 * `Status` is the snapshot a status panel renders; `Console.fixtures()` is the swatch preview; `LogBuffer` numbers log records so every console reads from where it left off.
 * `Console` methods marked `@action` are the controls, callable by name (`Console.act("force", {"state": "show"})`) with plain JSON-ish arguments, so the web API needs no per-action code.
@@ -168,6 +168,7 @@ hardware entirely), simulated presence, and a schedule override so it is always
 | `n` | toggle day/night override |
 | `l` / `s` | trigger a lightning strike / a discrete sound |
 | `t` | next lighting program in the current mode's pool, in a fixed order |
+| `c` | toggle the setup check: a tone on speaker N and dim red/green/blue/white on bar N, corner by corner |
 | `d` | toggle DEBUG-level logging in the log pane |
 | `tab`, `[`, `]` | select an audio layer or the lighting peak, nudge it |
 | `q` | quit |
@@ -239,6 +240,16 @@ the program inside a detached `screen` session owned by the ssh user, so
 if the program exits, so `q` in the TUI restarts rather than stops it (`just
 stop` for that). It stops with SIGINT, the program's clean shutdown. Fit an RTC
 module so the sunset schedule survives power cycles offline.
+
+To check the wiring on site, toggle the **setup check** from either console
+(`c`, or the switch under actions). It pins the program to OFF and walks the
+corners in a loop: a soft tone on output 1 and a dim red, green, blue, then
+white on the first bar in the patch (its white cells too), then output and bar
+2, 3, 4. A tone from the wrong direction means two speaker cables are swapped
+(reorder `audio.speakers`, or `channel_map` if a whole pair is on the wrong
+outputs); a bar lighting out of turn has the wrong DMX address. The tones rise
+in pitch by corner, so the ear can count along. Toggling it off hands the
+program back.
 
 The Open DMX USB appears as a plain FTDI serial port (`ftdi_sio`, no extra
 driver); the service user needs to be in the `dialout` group, and

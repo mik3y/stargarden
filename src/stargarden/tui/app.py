@@ -33,6 +33,7 @@ KEYS = (
     ("n", "toggle day / night"),
     ("l / s", "lightning / discrete sound"),
     ("t", "next lighting program"),
+    ("c", "setup check: tone + colors per corner"),
     ("d", "debug logging"),
     ("tab [ ]", "select level, nudge −/+"),
     ("q", "quit"),
@@ -114,6 +115,7 @@ class StargardenApp(App):
         Binding("l", "lightning", "Lightning"),
         Binding("s", "discrete", "Sound"),
         Binding("t", "next_theme", "Next lights"),
+        Binding("c", "toggle_check", "Setup check"),
         Binding("d", "toggle_debug", "Debug log"),
         Binding("tab", "next_level", "Level", priority=True),
         Binding("left_square_bracket", "level(-1)", "Level −", key_display="["),
@@ -168,7 +170,12 @@ class StargardenApp(App):
             night += " (override)"
         motion = ", ".join(f"{role} {_fmt_seconds(ago)} ago" for role, ago in s.motion_ago_s.items())
         lines = [
-            Text.assemble(("state  ", "bold"), (s.state.upper(), "bold cyan"), ("  [forced]" if s.forced else "", "yellow")),
+            Text.assemble(
+                ("state  ", "bold"),
+                (s.state.upper(), "bold cyan"),
+                ("  [forced]" if s.forced else "", "yellow"),
+                ("  [setup check]" if s.check else "", "bold magenta"),
+            ),
             Text(f"sched  {night}; next {_fmt_clock(s.next_transition)}"),
             Text(f"space  {'occupied' if s.occupied else 'vacant'}; hold {_fmt_seconds(s.hold_remaining_s)}"),
             Text(f"motion {motion}"),
@@ -244,6 +251,10 @@ class StargardenApp(App):
 
     def action_next_theme(self) -> None:
         self.control.next_theme()
+        self.refresh_status()
+
+    def action_toggle_check(self) -> None:
+        self.control.toggle_check()
         self.refresh_status()
 
     def action_toggle_debug(self) -> None:

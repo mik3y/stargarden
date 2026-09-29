@@ -53,6 +53,8 @@ async def test_api_and_stream(tmp_path: Path, assets: Path) -> None:
             r = await client.post("/api/actions/force", data=b"{not json")
             assert r.status == 400
 
+            program.lighting.fade_master(1.0, 0.0)  # past the fade-up, whatever the ambient theme's darkest look
+            await asyncio.sleep(0.1)  # the preview is the last rendered frame: let the render loop draw one
             fixtures = await (await client.get("/api/fixtures")).json()
             assert [f["name"] for f in fixtures] == ["a"] and max(fixtures[0]["rows"][0][0]["rgb"]) > 0  # ambient is lit
             log = await (await client.get("/api/log?since=0")).json()

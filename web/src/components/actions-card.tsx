@@ -18,7 +18,9 @@ import { keyFor } from "@/lib/keys";
 /**
  * One-shot actions: fake a sensor (the platform sensor starts a visit, the
  * walkway one only refreshes it), fire a lightning strike or a discrete
- * sound, step to the next lighting program, and the debug-logging switch.
+ * sound, step to the next lighting program, the setup check (a tone per
+ * speaker and colors per bar, corner by corner, with the program pinned to
+ * OFF), and the debug-logging switch.
  */
 const ActionsCard = ({ status, act }: { status: Status | null; act: Act }) => (
   <Card>
@@ -77,7 +79,25 @@ const ActionsCard = ({ status, act }: { status: Status | null; act: Act }) => (
         </Button>
       </Stack>
       <FormControlLabel
-        sx={{ mt: 1.5 }}
+        sx={{ mt: 1.5, display: "flex" }}
+        control={
+          <Switch
+            size="small"
+            color="secondary"
+            checked={status?.check ?? false}
+            disabled={!status}
+            onChange={(_, checked) => act("set_check", { on: checked })}
+          />
+        }
+        label={
+          <Typography variant="body2">
+            setup check: tone per speaker, colors per bar
+            <Kbd>{keyFor("toggle_check")}</Kbd>
+          </Typography>
+        }
+      />
+      <FormControlLabel
+        sx={{ display: "flex" }}
         control={
           <Switch
             size="small"

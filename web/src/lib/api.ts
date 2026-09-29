@@ -33,6 +33,8 @@ export interface Status {
   /** Audio layers and the lighting peak, 0..1, in display order. */
   levels: Record<string, number>;
   debug: boolean;
+  /** The setup check is walking the corners (tone per speaker, colors per bar). */
+  check: boolean;
 }
 
 /** `console.CellPreview`: one cell, previewed as if the peak were 1.0. */

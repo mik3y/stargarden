@@ -20,6 +20,7 @@ export const SHORTCUTS: Shortcut[] = [
   { key: "l", action: "lightning" },
   { key: "s", action: "discrete" },
   { key: "t", action: "next_theme" },
+  { key: "c", action: "toggle_check" },
   { key: "d", action: "toggle_debug" },
 ];
 

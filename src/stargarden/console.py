@@ -131,6 +131,7 @@ class Status:
     music: str | None
     levels: dict[str, float]  # audio layers and the lighting peak, in LEVELS order
     debug: bool
+    check: bool  # the setup check is walking the corners
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,7 @@ class Console:
             music=p.audio.current_music.title if p.audio.current_music else None,
             levels={name: self.level(name) for name in LEVELS},
             debug=debug_enabled(),
+            check=p.check.running,
         )
 
     def fixtures(self) -> list[FixturePreview]:
@@ -284,6 +286,22 @@ class Console:
     @action
     def discrete(self) -> bool:
         return self.program.audio.fire_discrete()
+
+    @action
+    def set_check(self, on: bool) -> bool:
+        """Run the setup check (a tone per speaker, red/green/blue/white per bar, corner by corner)
+        with the program pinned to OFF, or stop it and hand the state back."""
+        if not isinstance(on, bool):
+            raise ValueError("on must be true or false")
+        if on:
+            self.program.check.start()
+        else:
+            self.program.check.stop()
+        return self.program.check.running
+
+    @action
+    def toggle_check(self) -> bool:
+        return self.set_check(not self.program.check.running)
 
     @action
     def next_theme(self) -> str:

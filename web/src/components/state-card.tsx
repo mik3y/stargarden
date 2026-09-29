@@ -88,6 +88,14 @@ const StateCard = ({ status, act }: { status: Status | null; act: Act }) => {
               label="forced"
             />
           )}
+          {status.check && (
+            <Chip
+              size="small"
+              variant="outlined"
+              color="secondary"
+              label="setup check"
+            />
+          )}
           <Box sx={{ flex: 1 }} />
           <FormControlLabel
             control={

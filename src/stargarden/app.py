@@ -7,6 +7,7 @@ import random
 from collections.abc import Coroutine, Iterable
 
 from .audio import AudioEngine
+from .check import SetupCheck
 from .conductor import Conductor, State
 from .config import Config, ConfigError, SensorRole
 from .lighting import LightingEngine, Patch
@@ -41,6 +42,7 @@ class Stargarden:
         self.lightning = Lightning(
             config.lightning, self.patch, self.lighting, self.audio, manifest, self.rng, allowed=self.lightning_allowed
         )
+        self.check = SetupCheck(self.conductor, self.lighting, self.audio, self.patch)
         self.ambient_theme: Theme = self.lighting.theme
         self.show_theme: Theme | None = None
         self.last_music: MusicEntry | None = None
@@ -102,6 +104,7 @@ class Stargarden:
             task.cancel()
         if self._show_task:
             self._show_task.cancel()
+        self.check.stop()
 
     async def _conductor_loop(self) -> None:
         while True:
