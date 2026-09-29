@@ -61,7 +61,7 @@ def test_themes_are_bounded_and_smooth() -> None:
         for step in range(1, 200):
             c = theme.color(spot, step * 0.1)
             assert all(0.0 <= ch <= 1.0 for ch in c)
-            if not isinstance(theme, ChaseTheme):  # the chase is meant to snap; the slow programs must not
+            if not theme.snaps:  # the show programs are meant to cut and flash; the slow ones must not
                 assert max(abs(a - b) for a, b in zip(c, prev, strict=True)) < 0.05
             prev = c
             assert 0.0 <= theme.intensity(spot, step * 0.1) <= 1.0
@@ -164,6 +164,63 @@ def test_orbit_chases_both_ways_then_dances() -> None:
     assert theme._weights(ring[0], 2 * chase) == pytest.approx((0.0, 0.5, 0.5))
     assert theme._weights(ring[0], cycle) == pytest.approx((0.5, 0.0, 0.5))
     assert all(sum(theme._weights(ring[0], k / 10)) == pytest.approx(1.0) for k in range(int(cycle * 10)))
+
+
+def test_violet_storm_islands_in_the_dark_with_white_flashes_on_the_beat() -> None:
+    from stargarden.lighting.themes import StormTheme, _noise
+
+    theme = get_theme("violet-storm")
+    assert isinstance(theme, StormTheme) and theme.tempo_bpm == 120.0
+    n = 16
+    ring = [Spot(r // 4, 4, r % 4, 4, 0, 2, ring=r, ring_count=n) for r in range(n)]
+    # most of the ring is dark: over a couple of minutes, well under half the columns are lit at once
+    shares = []
+    for k in range(0, 2400):
+        t = 0.05 * k
+        levels = [theme.intensity(s, t) for s in ring]
+        shares.append(sum(lv > 0.3 for lv in levels) / n)
+        assert min(levels) >= theme.glow_level
+        for s, lv in zip(ring, levels, strict=True):
+            r, g, b = theme.color(s, t)
+            if lv > 0.3 and theme.flash(s, t) == 0.0:  # lit and not flashing: violet, never washed or warm
+                assert b > 0.6 and g < 0.2 and 0.2 < r < 0.7, (r, g, b)
+    assert 0.1 < sum(shares) / len(shares) < 0.5 and max(shares) < 0.9
+    # flashes land on the beat: the chosen column goes white and full at the beat, and is over by flash_s
+    flashed = 0
+    for k in range(400):
+        if _noise(k, 7) >= theme.flash_chance:
+            continue
+        column = ring[int(_noise(k, 8) * n)]
+        t = k * theme.beat_s
+        assert theme.intensity(column, t) == pytest.approx(1.0) and min(theme.color(column, t)) > 0.9
+        assert theme.intensity(column, t + theme.flash_s + 0.01) <= theme.brightness
+        flashed += 1
+    assert 100 < flashed < 300  # about every other beat
+    assert theme.island(ring[3], 0.0) != theme.island(ring[9], 0.0)  # columns swell on their own phases
+
+
+def test_starfield_is_mostly_dark_with_stars_flaring_out() -> None:
+    from stargarden.lighting.themes import SparkleTheme
+
+    theme = get_theme("starfield")
+    assert isinstance(theme, SparkleTheme) and theme.tempo_bpm == 120.0
+    n = 16
+    cells = [Spot(r // 4, 4, r % 4, 4, row, 2, ring=r, ring_count=n) for r in range(n) for row in range(2)]
+    shares, peak = [], 0.0
+    for k in range(0, 2400):
+        t = 0.05 * k
+        levels = [theme.intensity(c, t) for c in cells]
+        shares.append(sum(lv > 0.3 for lv in levels) / len(cells))
+        peak = max(peak, *levels)
+        for c, lv in zip(cells, levels, strict=True):
+            r, g, b = theme.color(c, t)
+            assert b >= g >= r  # always on the blue side, from the floor to an ice-white star
+            if theme.stars(c, t) == 0.0:  # no star burning: just the sky, faint and never black
+                assert theme.floor_level * 0.99 <= lv <= theme.floor_level * (1.0 + theme.swell_depth) + 1e-9
+    shares.sort()
+    assert shares[len(shares) // 2] < 0.15  # most cells dark most of the time
+    assert peak > 0.95  # but the stars do come out
+    assert any(theme.stars(cells[0], 0.1 * k) != theme.stars(cells[1], 0.1 * k) for k in range(100))  # stars are cells, not columns
 
 
 def test_spot_grid_and_ring_from_bar_cells(clock) -> None:

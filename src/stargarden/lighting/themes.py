@@ -8,13 +8,16 @@ program, sends waves of amber and orange along the bars with every other
 column dark. TideTheme, the other ambient program, washes a broad green swell
 around the ring of columns and back. ChaseTheme, the show program, runs a
 column of light around the room one way, then the other, then breaks into an
-odd/even dance.
+odd/even dance. StormTheme and SparkleTheme, the other show programs, leave most
+of the ring dark: a few violet islands with white flashes on the beat, and stars
+flaring out of a deep blue sky.
 """
 
 import math
 import random
 from collections.abc import Collection
 from dataclasses import dataclass
+from functools import lru_cache
 
 from .color import BLACK, RGB, mix, sample_palette
 
@@ -51,6 +54,7 @@ class Spot:
 class Theme:
     name: str
     tempo_bpm: float | None = None  # the tempo the theme is written at; the engine scales its clock to a track's tempo
+    snaps: bool = False  # the look is meant to cut and flash; the slow programs must stay smooth
 
     def color(self, spot: Spot, t: float) -> RGB:
         raise NotImplementedError
@@ -212,6 +216,7 @@ class ChaseTheme(Theme):
 
     name: str
     tempo_bpm: float | None = 120.0
+    snaps: bool = True
     blue: RGB = (0.05, 0.22, 1.0)
     purple: RGB = (0.55, 0.04, 1.0)
     glow: RGB = (0.03, 0.03, 0.4)  # the room between hits
@@ -295,8 +300,149 @@ class ChaseTheme(Theme):
         return self.sample(spot, t)[1]
 
 
+@lru_cache(maxsize=16384)
+def _noise(*keys: int) -> float:
+    """A number in [0, 1) that looks random but is fixed for its keys, so a theme can make
+    random-looking choices (which column, whether at all) that hold still from frame to frame."""
+    mask = (1 << 64) - 1
+    h = 0x9E3779B97F4A7C15
+    for k in keys:
+        h = ((h ^ (k & mask)) * 0xBF58476D1CE4E5B9) & mask
+        h ^= h >> 29
+    return (h >> 11) / float(1 << 53)
+
+
+@dataclass(frozen=True)
+class StormTheme(Theme):
+    """Violet islands in the dark, and white flashes on the beat.
+
+    Most of the ring is dark. A few columns at a time hold a deep violet that
+    swells up and fades on a slow clock of its own, each column on its own phase
+    and period, so the lit set wanders around the space without ever moving in
+    step. On roughly every other beat one column takes a white flash that falls
+    back to violet within a quarter second; now and then the whole ring flashes
+    at once. Written at 120 BPM: the flashes land on the track's beats.
+    """
+
+    name: str
+    tempo_bpm: float | None = 120.0
+    snaps: bool = True
+    deep: RGB = (0.22, 0.0, 0.55)  # an island as it swells in
+    violet: RGB = (0.55, 0.04, 1.0)  # at full
+    white: RGB = (1.0, 0.95, 1.0)  # a flash; a breath of violet keeps it from reading cold
+    glow_level: float = 0.02  # the dark between islands
+    island_period_s: float = 14.0  # one swell in and out; each column varies this by up to ±20 %
+    island_share: float = 0.3  # the share of the swell a column spends lit
+    beat_s: float = 0.5
+    flash_chance: float = 0.45  # per beat
+    sheet_chance: float = 0.06  # a flash that takes the whole ring rather than one column
+    flash_s: float = 0.25  # a flash is over in this long
+    brightness: float = 0.85  # an island at full; the flashes go to 1.0 above it
+
+    def island(self, spot: Spot, t: float) -> float:
+        """How lit this column's island is, 0..1: parked at 0 most of the time."""
+        period = self.island_period_s * (0.8 + 0.4 * _noise(spot.ring, 1))
+        u = (t / period + _noise(spot.ring, 2)) % 1.0
+        swell = 0.5 + 0.5 * math.cos(2 * math.pi * u)  # 1 at the top of the swell
+        return _smoothstep((swell - (1.0 - self.island_share)) / self.island_share)
+
+    def flash(self, spot: Spot, t: float) -> float:
+        """How much of a flash this column shows, 0..1, from this beat's flash or the last one's tail."""
+        level = 0.0
+        beat = int(t // self.beat_s)
+        for k in (beat - 1, beat):
+            if _noise(k, 7) >= self.flash_chance:
+                continue
+            column = int(_noise(k, 8) * spot.ring_count)
+            if column != spot.ring and _noise(k, 9) >= self.sheet_chance:
+                continue
+            dt = t - k * self.beat_s
+            if 0.0 <= dt < self.flash_s:
+                level = max(level, (1.0 - dt / self.flash_s) ** 2)
+        return level
+
+    def sample(self, spot: Spot, t: float) -> tuple[RGB, float]:
+        lit = self.island(spot, t)
+        base_color = mix(self.deep, self.violet, lit)
+        base = max(self.glow_level, lit * self.brightness)
+        f = self.flash(spot, t)
+        return mix(base_color, self.white, f), base + (1.0 - base) * f
+
+    def color(self, spot: Spot, t: float) -> RGB:
+        return self.sample(spot, t)[0]
+
+    def intensity(self, spot: Spot, t: float) -> float:
+        return self.sample(spot, t)[1]
+
+
+@dataclass(frozen=True)
+class SparkleTheme(Theme):
+    """A dark blue sky with stars coming out.
+
+    The floor is a faint deep blue, barely there, with a slow swell drifting
+    round the ring so the dark is never flat. On it, single cells flare ice-white
+    and die away to blue over half a second: stars, a scatter of them on each
+    beat and a stray one or two in between. Most cells are dark at any moment.
+    Written at 120 BPM: the scatters land on the track's beats.
+    """
+
+    name: str
+    tempo_bpm: float | None = 120.0
+    snaps: bool = True
+    floor: RGB = (0.0, 0.05, 0.3)
+    floor_level: float = 0.05
+    swell_depth: float = 0.8  # the floor rises by this share at the swell's crest
+    swell_period_s: float = 23.0  # one trip round the ring
+    star: RGB = (0.75, 0.88, 1.0)  # a star at its brightest
+    blue: RGB = (0.1, 0.3, 1.0)  # what it fades through
+    beat_s: float = 0.5
+    on_beat_chance: float = 0.10  # per cell, on the half-slot that starts a beat
+    off_beat_chance: float = 0.03  # per cell, on the half-slot between beats
+    attack_s: float = 0.04
+    decay_s: float = 0.5
+    brightness: float = 1.0
+
+    @property
+    def slot_s(self) -> float:
+        return self.beat_s / 2.0
+
+    def stars(self, spot: Spot, t: float) -> float:
+        """The light of every star still burning on this cell, 0..1."""
+        slot = int(t // self.slot_s)
+        tail = int((self.attack_s + self.decay_s) // self.slot_s) + 1
+        level = 0.0
+        for k in range(slot - tail, slot + 1):
+            chance = self.on_beat_chance if k % 2 == 0 else self.off_beat_chance
+            if _noise(spot.ring, spot.row, k, 1) >= chance:
+                continue
+            dt = t - (k + 0.8 * _noise(spot.ring, spot.row, k, 2)) * self.slot_s
+            if dt < 0.0:
+                continue
+            if dt < self.attack_s:
+                level += dt / self.attack_s
+            elif dt < self.attack_s + self.decay_s:
+                level += (1.0 - (dt - self.attack_s) / self.decay_s) ** 2
+        return min(1.0, level)
+
+    def sky(self, spot: Spot, t: float) -> float:
+        swell = 0.5 + 0.5 * math.sin(2 * math.pi * (t / self.swell_period_s - spot.ring / max(1, spot.ring_count)))
+        return self.floor_level * (1.0 + self.swell_depth * swell)
+
+    def sample(self, spot: Spot, t: float) -> tuple[RGB, float]:
+        star = self.stars(spot, t)
+        sky = self.sky(spot, t)
+        color = mix(self.floor, mix(self.blue, self.star, star), star)
+        return color, min(1.0, sky + star * self.brightness)
+
+    def color(self, spot: Spot, t: float) -> RGB:
+        return self.sample(spot, t)[0]
+
+    def intensity(self, spot: Spot, t: float) -> float:
+        return self.sample(spot, t)[1]
+
+
 AMBIENT_THEMES: dict[str, Theme] = {t.name: t for t in (WaveTheme("ember-waves"), TideTheme("green-tide"))}
-SHOW_THEMES: dict[str, Theme] = {t.name: t for t in (ChaseTheme("orbit"),)}
+SHOW_THEMES: dict[str, Theme] = {t.name: t for t in (ChaseTheme("orbit"), StormTheme("violet-storm"), SparkleTheme("starfield"))}
 
 DRIFT_THEMES: dict[str, Theme] = {
     t.name: t
