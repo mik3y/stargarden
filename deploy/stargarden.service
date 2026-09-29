@@ -1,0 +1,29 @@
+# Installed by deploy/prep.sh with @USER@ and @HOME@ filled in.
+# The program runs inside a detached screen session owned by the ssh user, so
+# `screen -r stargarden` shows the live TUI; systemd owns the session and
+# restarts it (and the program) if either exits.
+
+[Unit]
+Description=Stargarden sound and lighting (screen -r stargarden)
+After=network.target sound.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@HOME@/stargarden
+Environment=TERM=xterm-256color
+Environment=COLORTERM=truecolor
+Environment=LANG=C.UTF-8
+# a stale session of the same name would fight over the audio and DMX devices
+ExecStartPre=-/usr/bin/screen -S stargarden -X quit
+# -D -m: create the session detached but stay in the foreground until it ends
+ExecStart=/usr/bin/screen -DmS stargarden -c @HOME@/stargarden/deploy/screenrc @HOME@/stargarden/.venv/bin/stargarden --config configs/production.toml
+# SIGINT reaches the program as KeyboardInterrupt, which is its clean shutdown
+KillSignal=SIGINT
+TimeoutStopSec=15
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

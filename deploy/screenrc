@@ -1,0 +1,6 @@
+# For the boot-time screen session (deploy/stargarden.service).
+startup_message off
+defscrollback 2000
+# screen 5 passes 24-bit color through to the attached terminal; screen 4 only
+# warns that it does not know the command
+truecolor on

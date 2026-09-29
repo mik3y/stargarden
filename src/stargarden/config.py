@@ -234,7 +234,7 @@ def load_config(path: Path) -> Config:
         raise ConfigError(f"audio.channel_map: expected four distinct output channels numbered from 1, got {list(audio.channel_map)}")
 
     assets_raw = raw.get("assets", {})
-    root = Path(assets_raw.get("root", "assets"))
+    root = Path(assets_raw.get("root", "assets")).expanduser()  # "~/stargarden-assets" works for any service user
     if not root.is_absolute():
         root = path.parent / root
 

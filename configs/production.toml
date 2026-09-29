@@ -98,4 +98,4 @@ host = "0.0.0.0"  # reachable from a laptop on the Pi's hotspot; there is no log
 port = 7710
 
 [assets]
-root = "/home/pi/stargarden-assets"
+root = "~/stargarden-assets"  # rsync'd there by `just deploy`; ~ is the service user's home

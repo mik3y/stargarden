@@ -28,6 +28,7 @@ def test_production_config_loads() -> None:
     assert cfg.audio.levels.music == 0.9
     assert cfg.lightning.mean_interval_s == 1200 and cfg.lightning.thunder_delay_s == (0.3, 2.5)
     assert cfg.web.host == "0.0.0.0"  # the laptop on the Pi's hotspot reaches the console
+    assert cfg.assets_root == Path.home() / "stargarden-assets"  # "~" expands, whoever the service user is
 
 
 def test_defaults_and_unknown_keys(tmp_path: Path) -> None:

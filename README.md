@@ -212,16 +212,32 @@ simulation.
 
 ## Deployment
 
-On the Pi: `uv sync`, copy `configs/production.toml` to the site config and fill
-in coordinates, sensor MACs, the DMX patch, and the audio device; rsync the
-assets directory to `assets.root`; run `stargarden --config <site>.toml
---headless` from a systemd unit (`Restart=always`). Fit an RTC module so the
-sunset schedule survives power cycles offline.
+The `justfile` drives a Pi over ssh; `just` lists the recipes. The host is
+`stargarden` (`just host=other deploy`, or `STARGARDEN_HOST`), and the username
+and key come from `~/.ssh/config`. The Pi needs a network connection for the
+first `prep` (apt, uv, Python) and none afterwards.
 
-The Pi has no node: build the web console on the laptop (`cd web && bun run
-build`) before rsyncing the repo, so `web/dist` travels with it. The production
-config binds it to every interface on port 7710; open `http://<pi>:7710/` from
-a laptop on the Pi's network. There is no login, so that network stays private.
+```
+just prep      # a fresh Pi: packages, uv + Python 3.14, groups, the boot service; then a deploy
+just deploy    # build web/, rsync code + assets, uv sync on the Pi, restart if running
+just attach    # the live TUI in its screen session (detach with C-a d)
+just status | logs | start | stop | restart | ssh
+```
+
+Fill in `configs/production.toml` (coordinates, sensor MACs, the DMX patch, the
+audio device) on the laptop and commit it; the Pi runs it as is. Assets rsync
+from `assets-dev/` by default (`STARGARDEN_ASSETS=~/stargarden-assets just
+deploy` for the real library) into `~/stargarden-assets` on the Pi, which is
+`assets.root`. The code lands in `~/stargarden` with `web/dist` built on the
+laptop, since the Pi has no node; the web console is then at `http://<pi>:7710/`
+(no login, so the Pi's network stays private).
+
+The service (`deploy/stargarden.service`, installed by `deploy/prep.sh`) runs
+the program inside a detached `screen` session owned by the ssh user, so
+`screen -r stargarden` shows the TUI; systemd owns the session and restarts it
+if the program exits, so `q` in the TUI restarts rather than stops it (`just
+stop` for that). It stops with SIGINT, the program's clean shutdown. Fit an RTC
+module so the sunset schedule survives power cycles offline.
 
 The Open DMX USB appears as a plain FTDI serial port (`ftdi_sio`, no extra
 driver); the service user needs to be in the `dialout` group, and
