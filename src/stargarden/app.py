@@ -58,6 +58,7 @@ class Stargarden:
         self.ambient_theme: Theme = self.lighting.theme
         self.show_theme: Theme | None = None
         self.last_music: MusicEntry | None = None
+        self.next_music: MusicEntry | None = None  # queued from a console: the next show plays this
         self._loop: asyncio.AbstractEventLoop | None = None
         self._show_task: asyncio.Task | None = None
         self._tasks: list[asyncio.Task] = []
@@ -192,8 +193,48 @@ class Stargarden:
         self.lighting.set_theme(theme, fade_s=fade_s)
         return theme
 
+    # -- tracks ---------------------------------------------------------------
+
+    def enabled_tracks(self) -> list[str]:
+        return [m.id for m in self.manifest.music if m.id not in self.overrides.disabled_tracks]
+
+    def track(self, id: str) -> MusicEntry:
+        try:
+            return self.manifest.track(id)
+        except KeyError:
+            raise ValueError(f"unknown track {id!r}") from None
+
+    def set_track_enabled(self, id: str, enabled: bool) -> None:
+        """Put a track into the random rotation or take it out; at least one stays in."""
+        track = self.track(id)
+        if not enabled and all(t == id for t in self.enabled_tracks()):
+            raise ValueError("at least one track must stay enabled")
+        if enabled:
+            self.overrides.disabled_tracks.discard(id)
+        else:
+            self.overrides.disabled_tracks.add(id)
+        log.info("tracks: %s %s", track.title, "enabled" if enabled else "disabled")
+        self._touch_state()
+
+    def queue_track(self, id: str | None) -> MusicEntry | None:
+        """The next show plays this track, whatever the rotation would have picked; None clears the queue."""
+        self.next_music = self.track(id) if id is not None else None
+        log.info("tracks: next %s", self.next_music.title if self.next_music else "cleared")
+        return self.next_music
+
+    def play_track(self, id: str) -> MusicEntry:
+        """A show with this track, now: starting one, or starting over if one is playing."""
+        track = self.queue_track(id)
+        assert track is not None
+        if self.conductor.state is State.SHOW:
+            self.audio.stop_music(fade_s=self.config.timers.lights_out_s)  # fades with the lights; the new show restarts it
+            self._start_show()
+        else:
+            self.conductor.force(State.SHOW)  # released by itself when the track ends
+        return track
+
     def reset_overrides(self) -> None:
-        """Back to the config file: levels, peak, and every program in the rotation."""
+        """Back to the config file: levels, peak, and every program and track in the rotation."""
         levels = self.config.audio.levels
         for layer, level in ((Layer.BED, levels.bed), (Layer.DISCRETES, levels.discretes), (Layer.MUSIC, levels.music)):
             self.audio.set_level(layer, level)
@@ -255,15 +296,21 @@ class Stargarden:
             self.lighting.set_theme(self.ambient_theme)
             self.lighting.fade_master(1.0, 8.0)
         if new is State.SHOW:
-            self._show_task = asyncio.get_running_loop().create_task(self._run_show())
+            self._start_show()
         elif old is State.SHOW:
             self.audio.stop_music(fade_s=2.0)  # no-op if the track played out
             self.lighting.set_tempo(None)
             self.lighting.set_theme(self.ambient_theme, fade_s=6.0)
             self.lighting.fade_master(1.0, 3.0)
 
+    def _start_show(self) -> None:
+        if self._show_task and not self._show_task.done():
+            self._show_task.cancel()
+        self._show_task = asyncio.get_running_loop().create_task(self._run_show())
+
     async def _run_show(self) -> None:
-        track = self.manifest.pick_music(self.rng, avoid=self.last_music)
+        track = self.next_music or self.manifest.pick_music(self.rng, avoid=self.last_music, enabled=self.enabled_tracks())
+        self.next_music = None
         if track is None:
             log.warning("show: no music in manifest; skipping")
             self.conductor.track_finished()

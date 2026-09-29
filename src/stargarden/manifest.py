@@ -6,6 +6,7 @@ so the whole assets directory can be rsync'd to the Pi as a unit.
 
 import random
 import tomllib
+from collections.abc import Collection
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -40,6 +41,7 @@ class DiscreteEntry:
 @dataclass(frozen=True)
 class MusicEntry:
     path: Path
+    id: str  # the manifest's `file` value: stable across machines, unlike the absolute path
     title: str
     theme: str | None = None  # show lighting theme; random from the pool if None
     gain: float = 1.0
@@ -69,11 +71,20 @@ class Manifest:
     def pick_discrete(self, rng: random.Random) -> DiscreteEntry | None:
         return _weighted_pick(rng, self.discretes, None)
 
-    def pick_music(self, rng: random.Random, avoid: MusicEntry | None = None) -> MusicEntry | None:
+    def pick_music(self, rng: random.Random, avoid: MusicEntry | None = None, enabled: Collection[str] | None = None) -> MusicEntry | None:
+        """A random track, not `avoid` if there is a choice, and only from the `enabled`
+        ids when given (the whole list if that leaves nothing)."""
         if not self.music:
             return None
-        candidates = [m for m in self.music if m is not avoid] or list(self.music)
+        pool = [m for m in self.music if enabled is None or m.id in enabled] or list(self.music)
+        candidates = [m for m in pool if m is not avoid] or pool
         return rng.choice(candidates)
+
+    def track(self, id: str) -> MusicEntry:
+        for m in self.music:
+            if m.id == id:
+                return m
+        raise KeyError(f"unknown track {id!r}")
 
 
 def _weighted_pick(rng: random.Random, entries: tuple, avoid: Any):
@@ -100,6 +111,8 @@ def load_manifest(root: Path) -> Manifest:
         raise ManifestError(f"no manifest at {manifest_path}")
     with open(manifest_path, "rb") as f:
         raw = tomllib.load(f)
+    if len({m.get("file") for m in raw.get("music", [])}) != len(raw.get("music", [])):
+        raise ManifestError(f"{manifest_path}: music: the same file is listed twice")
     try:
         beds = tuple(BedEntry(**_entry(root, b, f"beds[{i}]")) for i, b in enumerate(raw.get("beds", [])))
         discretes = tuple(
@@ -107,7 +120,8 @@ def load_manifest(root: Path) -> Manifest:
             for i, d in enumerate(raw.get("discretes", []))
         )
         music = tuple(
-            MusicEntry(**{"title": m.get("file", ""), **_entry(root, m, f"music[{i}]")}) for i, m in enumerate(raw.get("music", []))
+            MusicEntry(**{"title": m.get("file", ""), "id": m.get("file", ""), **_entry(root, m, f"music[{i}]")})
+            for i, m in enumerate(raw.get("music", []))
         )
         thunder = tuple(
             DiscreteEntry(**{**_entry(root, d, f"thunder[{i}]"), "motion": DiscreteMotion(d.get("motion", "static"))})

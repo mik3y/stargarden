@@ -6,6 +6,8 @@ import Container from "@mui/material/Container";
 import Grid from "@mui/material/Grid";
 import Snackbar from "@mui/material/Snackbar";
 import Stack from "@mui/material/Stack";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
 import { useCallback, useEffect, useState } from "react";
@@ -16,9 +18,17 @@ import LevelsCard from "@/components/levels-card";
 import LogPane from "@/components/log-pane";
 import ProgramsCard from "@/components/programs-card";
 import StateCard from "@/components/state-card";
+import TracksCard from "@/components/tracks-card";
 import { type Act, act } from "@/lib/api";
 import { useConsole } from "@/lib/hooks";
 import { SHORTCUTS } from "@/lib/keys";
+
+type Page = "console" | "config";
+const PAGES: Page[] = ["console", "config"];
+
+/** The page named in the URL's hash (`#config`), so a reload and a shared link land on it. */
+const pageFromHash = (): Page =>
+  PAGES.find((p) => `#${p}` === location.hash) ?? "console";
 
 /** Keys typed into a field or onto a slider are theirs, not shortcuts. */
 const ownsKeys = (target: EventTarget | null): boolean => {
@@ -35,12 +45,20 @@ const ownsKeys = (target: EventTarget | null): boolean => {
 
 /**
  * The console: the same panels as the TUI (status and overrides, fixtures,
- * levels, one-shot actions, log), fed by one stream and driving the program
+ * levels, one-shot actions, log) on one page, and the program and track
+ * choices on a config page, fed by one stream and driving the program
  * through named actions.
  */
 const App = () => {
   const { connected, status, fixtures, log } = useConsole();
   const [error, setError] = useState("");
+  const [page, setPage] = useState<Page>(pageFromHash);
+
+  useEffect(() => {
+    const onHashChange = () => setPage(pageFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   const run: Act = useCallback(async (name, params) => {
     try {
@@ -88,6 +106,18 @@ const App = () => {
               {status.site}
             </Typography>
           )}
+          <Tabs
+            value={page}
+            onChange={(_, value: Page) => {
+              location.hash = value === "console" ? "" : value;
+              setPage(value);
+            }}
+            sx={{ ml: 3, minHeight: 48 }}
+          >
+            {PAGES.map((p) => (
+              <Tab key={p} value={p} label={p} sx={{ minHeight: 48 }} />
+            ))}
+          </Tabs>
           <Box sx={{ flex: 1 }} />
           <Chip
             size="small"
@@ -99,22 +129,32 @@ const App = () => {
       </AppBar>
 
       <Container maxWidth="xl" sx={{ py: 3 }}>
-        <Stack spacing={3}>
+        {page === "console" ? (
+          <Stack spacing={3}>
+            <Grid container spacing={3}>
+              <Grid size={{ xs: 12, md: 7 }}>
+                <StateCard status={status} act={run} />
+              </Grid>
+              <Grid size={{ xs: 12, md: 5 }}>
+                <Stack spacing={3}>
+                  <FixturesCard fixtures={fixtures} />
+                  <LevelsCard levels={status?.levels} act={run} />
+                  <ActionsCard status={status} act={run} />
+                </Stack>
+              </Grid>
+            </Grid>
+            <LogPane lines={log} debug={status?.debug ?? false} />
+          </Stack>
+        ) : (
           <Grid container spacing={3}>
             <Grid size={{ xs: 12, md: 7 }}>
-              <StateCard status={status} act={run} />
+              <TracksCard tracks={status?.tracks} act={run} />
             </Grid>
             <Grid size={{ xs: 12, md: 5 }}>
-              <Stack spacing={3}>
-                <FixturesCard fixtures={fixtures} />
-                <LevelsCard levels={status?.levels} act={run} />
-                <ProgramsCard programs={status?.programs} act={run} />
-                <ActionsCard status={status} act={run} />
-              </Stack>
+              <ProgramsCard programs={status?.programs} act={run} />
             </Grid>
           </Grid>
-          <LogPane lines={log} debug={status?.debug ?? false} />
-        </Stack>
+        )}
       </Container>
 
       <Snackbar

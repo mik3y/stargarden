@@ -1,12 +1,12 @@
 """Console settings that outlive a run: the audio levels, the lighting peak, and
-which programs are out of the random rotation.
+which programs and tracks are out of the random rotation.
 
 The config file is the committed, deployed source of defaults; this is the
 layer of overrides made from a console, kept in a small JSON file outside the
 code directory (`[state] path`, `~/.local/state/stargarden/state.json` by
 default) so a deploy's rsync never touches it. Only what was changed is
-stored, and disabled programs are stored rather than enabled ones, so a
-program added in a later deploy joins the rotation by itself. Delete the file
+stored, and disabled programs and tracks are stored rather than enabled ones,
+so one added in a later deploy joins the rotation by itself. Delete the file
 to go back to the config.
 """
 
@@ -25,10 +25,11 @@ class Overrides:
     levels: dict[str, float] = field(default_factory=dict)  # audio layer name → level
     peak: float | None = None
     disabled_themes: set[str] = field(default_factory=set)
+    disabled_tracks: set[str] = field(default_factory=set)  # by manifest id (the entry's `file`)
 
     @property
     def empty(self) -> bool:
-        return not self.levels and self.peak is None and not self.disabled_themes
+        return not self.levels and self.peak is None and not self.disabled_themes and not self.disabled_tracks
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -38,6 +39,8 @@ class Overrides:
             out["peak"] = self.peak
         if self.disabled_themes:
             out["disabled_themes"] = sorted(self.disabled_themes)
+        if self.disabled_tracks:
+            out["disabled_tracks"] = sorted(self.disabled_tracks)
         return out
 
     @classmethod
@@ -50,10 +53,13 @@ class Overrides:
         peak = data.get("peak")
         if peak is not None and not _is_number(peak):
             raise ValueError("peak: expected a number")
-        disabled = data.get("disabled_themes", [])
-        if not isinstance(disabled, list) or not all(isinstance(n, str) for n in disabled):
-            raise ValueError("disabled_themes: expected a list of names")
-        return cls({k: float(v) for k, v in levels.items()}, None if peak is None else float(peak), set(disabled))
+        disabled = {}
+        for key in ("disabled_themes", "disabled_tracks"):
+            names = data.get(key, [])
+            if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+                raise ValueError(f"{key}: expected a list of names")
+            disabled[key] = set(names)
+        return cls({k: float(v) for k, v in levels.items()}, None if peak is None else float(peak), **disabled)
 
 
 def _is_number(v: Any) -> bool:

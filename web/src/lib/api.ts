@@ -38,6 +38,22 @@ export interface Status {
   check: boolean;
   /** Every lighting program by pool: in the random rotation or not, and which is on now. */
   programs: Program[];
+  /** Every show track in manifest order: in the rotation or not, playing, queued for the next show. */
+  tracks: Track[];
+}
+
+/** `console.TrackStatus`. */
+export interface Track {
+  /** The manifest entry's `file`: what the track actions take. */
+  id: string;
+  title: string;
+  /** The manifest's choice of lighting program; null for the rotation's. */
+  theme: string | null;
+  /** The manifest's or the measured tempo; null until measured. */
+  bpm: number | null;
+  enabled: boolean;
+  playing: boolean;
+  next: boolean;
 }
 
 /** `console.ProgramStatus`. */

@@ -185,7 +185,11 @@ class StargardenApp(App):
             Text(f"storm  next strike in {_fmt_seconds(s.storm_in_s)}" + ("" if s.lightning_allowed else " (held: not in presence)")),
             Text(f"audio  {s.audio_out}, {s.audio_mode} @ {s.samplerate} Hz"),
             Text(f"bed    {s.bed or '—'}"),
-            Text(f"music  {s.music or '—'}" + (f", {s.bpm:.0f} bpm" if s.bpm is not None else "")),
+            Text(
+                f"music  {s.music or '—'}"
+                + (f", {s.bpm:.0f} bpm" if s.bpm is not None else "")
+                + "".join(f"; next {t.title}" for t in s.tracks if t.next)
+            ),
         ]
         self._update("#status", Text("\n").join(lines))
         self.refresh_levels()

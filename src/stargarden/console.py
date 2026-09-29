@@ -116,6 +116,19 @@ class ProgramStatus:
 
 
 @dataclass(frozen=True)
+class TrackStatus:
+    """One show track: in the random rotation or not, on now, queued for the next show, and what is known of it."""
+
+    id: str
+    title: str
+    theme: str | None  # the manifest's choice of lighting program, or None for the rotation's
+    bpm: float | None  # the manifest's or the measured tempo; None until measured
+    enabled: bool
+    playing: bool
+    next: bool
+
+
+@dataclass(frozen=True)
 class Status:
     """Everything a console's status panel shows, as plain data (JSON-ready)."""
 
@@ -145,6 +158,7 @@ class Status:
     debug: bool
     check: bool  # the setup check is walking the corners
     programs: list[ProgramStatus]
+    tracks: list[TrackStatus]
 
 
 @dataclass(frozen=True)
@@ -224,6 +238,7 @@ class Console:
             debug=debug_enabled(),
             check=p.check.running,
             programs=self.programs(),
+            tracks=self.tracks(),
         )
 
     def programs(self) -> list[ProgramStatus]:
@@ -233,6 +248,14 @@ class Console:
             ProgramStatus(name, pool, name not in disabled, name == playing)
             for pool, themes in (("ambient", AMBIENT_THEMES), ("show", SHOW_THEMES))
             for name in themes
+        ]
+
+    def tracks(self) -> list[TrackStatus]:
+        p = self.program
+        disabled, playing, queued = p.overrides.disabled_tracks, p.audio.current_music, p.next_music
+        return [
+            TrackStatus(m.id, m.title, m.theme, p.tempo.bpm_for(m), m.id not in disabled, m is playing, m is queued)
+            for m in p.manifest.music
         ]
 
     def fixtures(self) -> list[FixturePreview]:
@@ -343,8 +366,31 @@ class Console:
         return self.program.set_theme(name).name
 
     @action
+    def set_track_enabled(self, id: str, enabled: bool) -> bool:
+        """Put a show track into the random rotation or take it out (at least one stays in)."""
+        if not isinstance(id, str) or not isinstance(enabled, bool):
+            raise ValueError("id must be a track id and enabled true or false")
+        self.program.set_track_enabled(id, enabled)
+        return enabled
+
+    @action
+    def queue_track(self, id: str | None) -> str | None:
+        """The next show plays this track (`id = None` clears the queue); returns the queued id."""
+        if id is not None and not isinstance(id, str):
+            raise ValueError("id must be a track id or null")
+        track = self.program.queue_track(id)
+        return track.id if track else None
+
+    @action
+    def play_track(self, id: str) -> str:
+        """A show with this track now: entering show mode, or starting the show over."""
+        if not isinstance(id, str):
+            raise ValueError("id must be a track id")
+        return self.program.play_track(id).id
+
+    @action
     def reset_defaults(self) -> None:
-        """Levels, peak and program choices back to the config file's values."""
+        """Levels, peak, program and track choices back to the config file's values."""
         self.program.reset_overrides()
 
     @action
