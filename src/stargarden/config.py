@@ -144,7 +144,8 @@ class WebConfig:
 
 @dataclass(frozen=True)
 class StateConfig:
-    """Where console overrides (levels, peak, disabled programs) persist; outside the code directory."""
+    """Where console overrides (levels, peak, disabled programs) persist, outside the code directory;
+    the tempo cache (`bpm.json`, see `audio/tempo.py`) sits next to it."""
 
     path: Path = Path("~/.local/state/stargarden/state.json")
 

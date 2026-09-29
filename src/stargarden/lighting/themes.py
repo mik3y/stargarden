@@ -50,6 +50,7 @@ class Spot:
 
 class Theme:
     name: str
+    tempo_bpm: float | None = None  # the tempo the theme is written at; the engine scales its clock to a track's tempo
 
     def color(self, spot: Spot, t: float) -> RGB:
         raise NotImplementedError
@@ -203,9 +204,14 @@ class ChaseTheme(Theme):
     columns take turns on a steady beat. Between hits the room holds a faint
     indigo glow rather than going black. Movements cross-fade into each other.
     The head's color slides between blue and purple as it goes round.
+
+    Written at 120 BPM: the dance swaps every beat and the chase steps every
+    0.8 beat. During a show the engine runs the theme's clock at the track's
+    tempo over this one, so the whole program breathes with the music.
     """
 
     name: str
+    tempo_bpm: float | None = 120.0
     blue: RGB = (0.05, 0.22, 1.0)
     purple: RGB = (0.55, 0.04, 1.0)
     glow: RGB = (0.03, 0.03, 0.4)  # the room between hits

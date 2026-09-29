@@ -182,7 +182,10 @@ const StateCard = ({ status, act }: { status: Status | null; act: Act }) => {
             {status.audio_out}, {status.audio_mode} @ {status.samplerate} Hz
           </Fact>
           <Fact label="bed">{status.bed ?? "—"}</Fact>
-          <Fact label="music">{status.music ?? "—"}</Fact>
+          <Fact label="music">
+            {status.music ?? "—"}
+            {status.bpm !== null ? `, ${status.bpm.toFixed(0)} bpm` : ""}
+          </Fact>
         </Stack>
       </CardContent>
     </Card>

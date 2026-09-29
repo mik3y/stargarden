@@ -140,6 +140,7 @@ class Status:
     samplerate: int
     bed: str | None
     music: str | None
+    bpm: float | None  # the show track's tempo, which the lighting program is running at
     levels: dict[str, float]  # audio layers and the lighting peak, in LEVELS order
     debug: bool
     check: bool  # the setup check is walking the corners
@@ -218,6 +219,7 @@ class Console:
             samplerate=p.config.audio.samplerate,
             bed=p.audio.current_bed.path.name if p.audio.current_bed else None,
             music=p.audio.current_music.title if p.audio.current_music else None,
+            bpm=p.lighting.tempo,
             levels={name: self.level(name) for name in LEVELS},
             debug=debug_enabled(),
             check=p.check.running,

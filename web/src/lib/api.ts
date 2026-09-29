@@ -30,6 +30,7 @@ export interface Status {
   samplerate: number;
   bed: string | null;
   music: string | null;
+  bpm: number | null;
   /** Audio layers and the lighting peak, 0..1, in display order. */
   levels: Record<string, number>;
   debug: boolean;

@@ -5,6 +5,11 @@ the peak is a standing ceiling on how bright the themes get, for softer light
 on real fixtures. An overlay (e.g. a lightning strike) rewrites the per-cell
 frames for as long as it is active, on top of both; the engine drops it once
 `finished`.
+
+Each theme is sampled on its own clock. A theme written at a tempo
+(`Theme.tempo_bpm`) runs at `tempo / tempo_bpm` speed while a tempo is set
+(the show track's, see `audio/tempo.py`); the rest run at 1×. The clock is
+rebased whenever the rate changes, so the theme never jumps.
 """
 
 import asyncio
@@ -47,6 +52,21 @@ class _Ramp:
         return self.start_value + (self.end_value - self.start_value) * u
 
 
+@dataclass
+class _ThemeClock:
+    """A theme's time as a function of the engine's: continuous across rate changes."""
+
+    origin: float  # engine time at the last rebase
+    theme_origin: float  # theme time then
+    rate: float = 1.0
+
+    def at(self, t: float) -> float:
+        return self.theme_origin + (t - self.origin) * self.rate
+
+    def rebased(self, t: float, rate: float) -> _ThemeClock:
+        return _ThemeClock(t, self.at(t), rate)
+
+
 class LightingEngine:
     def __init__(
         self,
@@ -63,7 +83,10 @@ class LightingEngine:
         self._clock = clock
         self._rng = rng or random.Random()
         self.theme = theme
+        self.tempo: float | None = None  # the show track's BPM while one plays
+        self._time = _ThemeClock(0.0, 0.0)
         self._prev_theme: Theme | None = None
+        self._prev_time = self._time
         self._theme_fade: _Ramp | None = None
         self._master = _Ramp(0.0, 0.0, 0.0, 0.0)
         self.peak = cfg.peak
@@ -78,9 +101,35 @@ class LightingEngine:
             return
         log.info("lighting: theme %s (fade %.0fs)", theme.name, fade_s)
         now = self._clock()
-        self._prev_theme = self.theme
+        self._prev_theme, self._prev_time = self.theme, self._time
         self.theme = theme
+        self._time = _ThemeClock(now, now, self._rate(theme))
         self._theme_fade = _Ramp(0.0, 1.0, now, fade_s)
+
+    def set_tempo(self, bpm: float | None) -> None:
+        """Run tempo-written themes at `bpm` (None: at their own tempo); takes effect without a jump."""
+        if bpm is not None and bpm <= 0:
+            raise ValueError(f"tempo must be positive, got {bpm}")
+        if bpm == self.tempo:
+            return
+        self.tempo = bpm
+        now = self._clock()
+        self._time = self._time.rebased(now, self._rate(self.theme))
+        if self._prev_theme is not None:
+            self._prev_time = self._prev_time.rebased(now, self._rate(self._prev_theme))
+        if bpm is not None:
+            log.info("lighting: tempo %.1f bpm (%s at %.2fx)", bpm, self.theme.name, self._time.rate)
+        else:
+            log.info("lighting: tempo released")
+
+    def theme_time(self, t: float) -> float:
+        """The current theme's own time at engine time `t`."""
+        return self._time.at(t)
+
+    def _rate(self, theme: Theme) -> float:
+        if self.tempo is None or theme.tempo_bpm is None:
+            return 1.0
+        return self.tempo / theme.tempo_bpm
 
     def fade_master(self, target: float, seconds: float) -> None:
         now = self._clock()
@@ -171,15 +220,15 @@ class LightingEngine:
         return frames
 
     def _color(self, spot: Spot, t: float, blend: float) -> RGB:
-        rgb = self.theme.color(spot, t)
+        rgb = self.theme.color(spot, self._time.at(t))
         if self._prev_theme is not None and blend < 1.0:
-            return mix(self._prev_theme.color(spot, t), rgb, blend)
+            return mix(self._prev_theme.color(spot, self._prev_time.at(t)), rgb, blend)
         return rgb
 
     def _intensity(self, spot: Spot, t: float, blend: float) -> float:
-        value = self.theme.intensity(spot, t)
+        value = self.theme.intensity(spot, self._time.at(t))
         if self._prev_theme is not None and blend < 1.0:
-            prev = self._prev_theme.intensity(spot, t)
+            prev = self._prev_theme.intensity(spot, self._prev_time.at(t))
             return prev + (value - prev) * blend
         return value
 

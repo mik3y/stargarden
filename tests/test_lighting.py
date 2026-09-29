@@ -258,6 +258,47 @@ def test_engine_fades(clock) -> None:
     assert engine._prev_theme is None
 
 
+def test_tempo_scales_a_show_theme_without_a_jump(clock) -> None:
+    cfg = make_cfg(
+        FixtureConfig("nw", "generic", 1, "rgb", (-0.8, 0.8)),
+        FixtureConfig("ne", "generic", 4, "rgb", (0.8, 0.8)),
+        FixtureConfig("sw", "generic", 7, "rgb", (-0.8, -0.8)),
+        FixtureConfig("se", "generic", 10, "rgb", (0.8, -0.8)),
+    )
+    patch = Patch.from_config(cfg)
+    orbit = get_theme("orbit")
+    assert orbit.tempo_bpm == 120.0 and get_theme("ember-waves").tempo_bpm is None
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, orbit, random.Random(1), clock=clock)
+    engine.fade_master(1.0, 0.0)
+    clock.t = 1000.0
+    assert engine.theme_time(1000.0) == 1000.0  # no tempo: the theme runs on the engine's clock
+
+    engine.set_tempo(60.0)  # half speed
+    assert engine.tempo == 60.0
+    assert engine.theme_time(1004.0) == 1002.0
+    clock.t = 1004.0
+    slowed = engine.frame(clock())
+    engine.set_tempo(None)
+    assert engine.theme_time(1004.0) == 1002.0  # released: rate 1× from here, no jump
+    assert engine.theme_time(1005.0) == 1003.0
+    engine.set_tempo(240.0)
+    assert engine.theme_time(1005.0) == 1004.0
+    engine.set_tempo(None)
+
+    plain = LightingEngine(patch, ConsoleDriver(), cfg, orbit, random.Random(1), clock=clock)
+    plain.fade_master(1.0, 0.0)
+    assert slowed == plain.frame(1002.0)  # what the slowed theme showed at 1004 is what it shows unslowed at 1002
+
+    engine.set_theme(get_theme("ember-waves"), fade_s=0.0)  # not written at a tempo: unaffected
+    clock.t = 1100.0
+    engine.frame(clock())
+    before = engine.theme_time(1110.0)
+    engine.set_tempo(70.0)
+    assert engine.theme_time(1110.0) == before
+    with pytest.raises(ValueError):
+        engine.set_tempo(0.0)
+
+
 # -- ADJ Jolt Bar FX2 -------------------------------------------------------------
 
 

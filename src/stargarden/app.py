@@ -7,6 +7,7 @@ import random
 from collections.abc import Coroutine, Iterable
 
 from .audio import AudioEngine, Layer
+from .audio.tempo import TempoAnalyzer, TempoCache
 from .check import SetupCheck
 from .conductor import Conductor, State
 from .config import Config, ConfigError, SensorRole
@@ -41,6 +42,7 @@ class Stargarden:
         first = pick_ambient(self.rng, enabled=self.enabled_themes(AMBIENT_THEMES))
         self.lighting = LightingEngine(self.patch, make_driver(config.lighting), config.lighting, first, self.rng)
         self.audio = AudioEngine(config.audio, config.discretes, manifest, self.rng, self._track_finished_from_audio_thread)
+        self.tempo = TempoAnalyzer(manifest, TempoCache(config.state.path.with_name("bpm.json"), config.assets_root))
         for name, level in self.overrides.levels.items():
             if name in Layer.__members__.values():
                 self.audio.set_level(Layer(name), level)
@@ -100,6 +102,7 @@ class Stargarden:
         if `foreground` (e.g. the TUI) is given, stop when it returns."""
         self._loop = asyncio.get_running_loop()
         self.audio.start()
+        self.tempo.start()  # tracks not yet in the cache get their tempo measured in the background
         try:
             async with asyncio.TaskGroup() as tg:
                 self._tasks = [tg.create_task(coro) for coro in (*self.background_tasks(), *background)]
@@ -107,6 +110,7 @@ class Stargarden:
                     await foreground
                     self.shutdown()
         finally:
+            self.tempo.stop()
             self.audio.stop()
             if self._save_handle is not None:  # a change still waiting for its debounce
                 self._save_handle.cancel()
@@ -254,6 +258,7 @@ class Stargarden:
             self._show_task = asyncio.get_running_loop().create_task(self._run_show())
         elif old is State.SHOW:
             self.audio.stop_music(fade_s=2.0)  # no-op if the track played out
+            self.lighting.set_tempo(None)
             self.lighting.set_theme(self.ambient_theme, fade_s=6.0)
             self.lighting.fade_master(1.0, 3.0)
 
@@ -274,7 +279,11 @@ class Stargarden:
         await asyncio.sleep(lights_out + 1.0)
         self.last_music = track
         self.show_theme = theme
+        bpm = self.tempo.bpm_for(track)  # asked now, not earlier: the analyzer may have got to it during the blackout
+        if bpm is None:
+            log.info("show: %s has no tempo yet; %s runs at its own", track.title, theme.name)
         self.audio.play_music(track)
+        self.lighting.set_tempo(bpm)
         self.lighting.set_theme(theme)
         self.lighting.fade_master(1.0, 4.0)
 

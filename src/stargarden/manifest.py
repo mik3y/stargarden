@@ -43,6 +43,13 @@ class MusicEntry:
     title: str
     theme: str | None = None  # show lighting theme; random from the pool if None
     gain: float = 1.0
+    bpm: float | None = None  # the track's tempo, when detection gets it wrong; otherwise detected and cached (audio/tempo.py)
+
+    def __post_init__(self) -> None:
+        if self.bpm is not None and (isinstance(self.bpm, bool) or not isinstance(self.bpm, int | float) or self.bpm <= 0):
+            raise ValueError(f"{self.title}: bpm must be a positive number, got {self.bpm!r}")
+        if self.bpm is not None:
+            object.__setattr__(self, "bpm", float(self.bpm))
 
 
 @dataclass(frozen=True)
