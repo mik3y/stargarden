@@ -35,7 +35,7 @@ sync: web
 web:
     cd web && bun install --frozen-lockfile && bun run build
 
-# attach to the server's screen session (detach with C-a d)
+# attach to the server's screen session, which shows its log stream (detach with C-a d)
 attach:
     ssh -t {{host}} screen -r stargarden
 
@@ -52,7 +52,7 @@ restart:
 status:
     ssh {{host}} 'systemctl --no-pager status stargarden || true'
 
-# follow the service log (the TUI's log pane is the richer view: `just attach`)
+# follow the service's journal (systemd's view; `just attach` shows the program's own log)
 logs:
     ssh -t {{host}} journalctl -u stargarden -f
 

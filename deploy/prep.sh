@@ -72,6 +72,6 @@ sleep 2
 systemctl --no-pager status stargarden | head -5
 
 echo
-echo "done. \`screen -r stargarden\` (or \`just attach\`) shows the console; the web console is at http://$(hostname)/ (port 80 -> 7710)."
+echo "done. \`screen -r stargarden\` (or \`just attach\`) shows the log; the web console is at http://$(hostname)/ (port 80 -> 7710)."
 echo "with no wifi for 60s the Pi raises its own network: ssid $AP_SSID, console at http://${AP_ADDRESS%/*}/."
 echo "fill in configs/production.toml (coordinates, sensor MACs) on the laptop and \`just deploy\`."

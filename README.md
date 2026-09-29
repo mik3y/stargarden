@@ -222,7 +222,7 @@ first `prep` (apt, uv, Python) and none afterwards.
 ```
 just prep      # a fresh Pi: packages, uv + Python 3.14, groups, the boot service; then a deploy
 just deploy    # build web/, rsync code + assets, uv sync on the Pi, restart if running
-just attach    # the live TUI in its screen session (detach with C-a d)
+just attach    # the program's log stream in its screen session (detach with C-a d)
 just status | logs | start | stop | restart | ssh
 ```
 
@@ -236,11 +236,13 @@ laptop, since the Pi has no node; the web console is then at `http://<pi>/`
 Pi's network stays private).
 
 The service (`deploy/stargarden.service`, installed by `deploy/prep.sh`) runs
-the program inside a detached `screen` session owned by the ssh user, so
-`screen -r stargarden` shows the TUI; systemd owns the session and restarts it
-if the program exits, so `q` in the TUI restarts rather than stops it (`just
-stop` for that). It stops with SIGINT, the program's clean shutdown. Fit an RTC
-module so the sunset schedule survives power cycles offline.
+the program headless inside a detached `screen` session owned by the ssh user,
+so `screen -r stargarden` shows its log stream and the web console is the UI
+(the TUI's repaints compete with the audio callback for the GIL on a Pi 4 and
+cause underruns, so it stays a laptop tool). systemd owns the session and
+restarts it if the program exits; `just stop` stops it. It stops with SIGINT,
+the program's clean shutdown. Fit an RTC module so the sunset schedule
+survives power cycles offline.
 
 In the field the Pi makes its own network. `stargarden-wifi.service`
 (`deploy/wifi-watch.sh`) watches the Wi-Fi: after 60 seconds without a

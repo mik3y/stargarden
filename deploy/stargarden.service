@@ -1,7 +1,8 @@
 # Installed by deploy/install-services.sh with @USER@ and @HOME@ filled in.
-# The program runs inside a detached screen session owned by the ssh user, so
-# `screen -r stargarden` shows the live TUI; systemd owns the session and
-# restarts it (and the program) if either exits.
+# The program runs headless (the TUI's repaints starve the audio callback on a
+# Pi) inside a detached screen session owned by the ssh user, so
+# `screen -r stargarden` shows the log stream; the web console is the UI.
+# systemd owns the session and restarts it (and the program) if either exits.
 
 [Unit]
 Description=Stargarden sound and lighting (screen -r stargarden)
@@ -18,7 +19,7 @@ Environment=LANG=C.UTF-8
 # a stale session of the same name would fight over the audio and DMX devices
 ExecStartPre=-/usr/bin/screen -S stargarden -X quit
 # -D -m: create the session detached but stay in the foreground until it ends
-ExecStart=/usr/bin/screen -DmS stargarden -c @HOME@/stargarden/deploy/screenrc @HOME@/stargarden/.venv/bin/stargarden --config configs/production.toml
+ExecStart=/usr/bin/screen -DmS stargarden -c @HOME@/stargarden/deploy/screenrc @HOME@/stargarden/.venv/bin/stargarden --config configs/production.toml --headless
 # SIGINT reaches the program as KeyboardInterrupt, which is its clean shutdown
 KillSignal=SIGINT
 TimeoutStopSec=15
