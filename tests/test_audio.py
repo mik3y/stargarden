@@ -198,6 +198,28 @@ def test_quad_picks_a_usb_card_and_places_the_four_mixes(fake_sd) -> None:
     backend.stop()
 
 
+def test_underruns_are_logged_once_then_counted(fake_sd, caplog, monkeypatch: pytest.MonkeyPatch) -> None:
+    from stargarden.audio import backends
+    from stargarden.config import AudioConfig, AudioMode
+
+    fake = fake_sd([("USB Sound Device", 8)])
+    backend = backends.SounddeviceBackend(AudioConfig(mode=AudioMode.QUAD, channel_map=(1, 2, 5, 6)))
+    quad = np.zeros((1, 4), np.float32)
+    backend.start(lambda frames: quad)
+    callback = fake.streams[-1].kw["callback"]
+    clock = [100.0]
+    monkeypatch.setattr(backends.time, "monotonic", lambda: clock[0])
+    with caplog.at_level("WARNING"):
+        for _ in range(10):
+            callback(np.zeros((1, 8), np.float32), 1, None, "output underflow")
+        assert caplog.text.count("output underflow") == 1  # the first is logged at once
+        clock[0] += backends.SounddeviceBackend.STATUS_LOG_S
+        callback(np.zeros((1, 8), np.float32), 1, None, "output underflow")
+    assert caplog.text.count("output underflow") == 2 and "(10 in the last 5s)" in caplog.text
+    assert backend.status_count == 11
+    backend.stop()
+
+
 def test_quad_falls_back_to_stereo_on_a_laptop(fake_sd, caplog) -> None:
     from stargarden.audio.backends import SounddeviceBackend
     from stargarden.config import AudioConfig, AudioMode

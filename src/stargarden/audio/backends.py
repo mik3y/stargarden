@@ -70,6 +70,7 @@ class SounddeviceBackend(AudioBackend):
     """
 
     name = "sounddevice"
+    STATUS_LOG_S = 5.0  # underruns come in bursts: log the first at once, then a count per interval
 
     def __init__(self, cfg: AudioConfig) -> None:
         import sounddevice as sd
@@ -83,6 +84,9 @@ class SounddeviceBackend(AudioBackend):
         info = sd.query_devices(self.device, "output") if self.device is not None else sd.query_devices(kind="output")
         self.device_name: str = info["name"]
         self._stream = None
+        self.status_count = 0  # callbacks PortAudio flagged (underflow, mostly)
+        self._status_logged_at: float | None = None
+        self._status_pending = 0
 
     def _choose(self, cfg: AudioConfig) -> tuple[int | None, int]:
         """(device index or None for the default, channels to open)."""
@@ -122,10 +126,22 @@ class SounddeviceBackend(AudioBackend):
             out.fill(0.0)
             out[:, list(self._slots)] = self._layout.to_outputs(quad)
 
+    def _note_status(self, status) -> None:
+        self.status_count += 1
+        self._status_pending += 1
+        now = time.monotonic()
+        if self._status_logged_at is None:
+            log.warning("audio: %s", status)
+        elif now - self._status_logged_at >= self.STATUS_LOG_S:
+            log.warning("audio: %s (%d in the last %.0fs)", status, self._status_pending, now - self._status_logged_at)
+        else:
+            return
+        self._status_logged_at, self._status_pending = now, 0
+
     def start(self, render: Render) -> None:
         def callback(outdata: np.ndarray, frames: int, _time, status) -> None:
             if status:
-                log.warning("audio: %s", status)
+                self._note_status(status)
             self.place(render(frames), outdata)
 
         self._stream = self._sd.OutputStream(

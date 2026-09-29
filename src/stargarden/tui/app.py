@@ -21,6 +21,11 @@ from ..console import LEVEL_STEP, LEVELS, Console, LogBuffer, swatch_rgb
 __all__ = ["StargardenApp", "LogPane", "format_record", "swatch_rgb"]
 
 SWATCH_WIDTH = 16
+# Every repaint is pure Python on the program's main thread, where it competes with
+# the audio callback for the GIL; on a Pi 4, 10 Hz swatches starved it into underruns.
+STATUS_REFRESH_S = 1.0
+FIXTURES_REFRESH_S = 0.25
+LOG_REFRESH_S = 0.5
 KEYS = (
     ("m / w", "platform / walkway motion"),
     ("0 1 2 3", "force off/ambient/presence/show"),
@@ -141,9 +146,9 @@ class StargardenApp(App):
         for widget_id in ("status", "fixtures", "levels", "keys"):
             self.query_one(f"#{widget_id}", Static).border_title = widget_id
         self._refresh_timers = [  # not `_timers`: that is Textual's own set of timers
-            self.set_interval(0.25, self.refresh_status),
-            self.set_interval(0.1, self.refresh_fixtures),
-            self.set_interval(0.25, self.query_one(LogPane).drain),
+            self.set_interval(STATUS_REFRESH_S, self.refresh_status),
+            self.set_interval(FIXTURES_REFRESH_S, self.refresh_fixtures),
+            self.set_interval(LOG_REFRESH_S, self.query_one(LogPane).drain),
         ]
         self.refresh_status()
         self.refresh_fixtures()
