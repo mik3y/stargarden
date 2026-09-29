@@ -1,0 +1,16 @@
+# Installed by deploy/install-services.sh with @HOME@ filled in.
+# Raises the Pi's own access point when it has no Wi-Fi (deploy/wifi-watch.sh).
+
+[Unit]
+Description=Stargarden Wi-Fi fallback access point
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=@HOME@/stargarden/deploy/wifi-watch.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

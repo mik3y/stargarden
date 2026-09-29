@@ -241,6 +241,16 @@ if the program exits, so `q` in the TUI restarts rather than stops it (`just
 stop` for that). It stops with SIGINT, the program's clean shutdown. Fit an RTC
 module so the sunset schedule survives power cycles offline.
 
+In the field the Pi makes its own network. `stargarden-wifi.service`
+(`deploy/wifi-watch.sh`) watches the Wi-Fi: after 60 seconds without a
+connection it raises an access point, SSID `stargarden`, password `star4321`,
+with the Pi at `10.42.0.1`, so a laptop or phone can join it and open
+`http://10.42.0.1:7710/`. While nobody is on the access point it tries the
+known networks again every ten minutes; with someone connected it stays up.
+`just prep` creates the NetworkManager profile (`AP_SSID` and `AP_PSK` in the
+environment override the defaults) and installs the service; `just deploy`
+refreshes it when the scripts change.
+
 To check the wiring on site, toggle the **setup check** from either console
 (`c`, or the switch under actions). It pins the program to OFF and walks the
 corners in a loop: a soft tone on output 1 and a dim red, green, blue, then

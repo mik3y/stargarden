@@ -1,4 +1,4 @@
-# Installed by deploy/prep.sh with @USER@ and @HOME@ filled in.
+# Installed by deploy/install-services.sh with @USER@ and @HOME@ filled in.
 # The program runs inside a detached screen session owned by the ssh user, so
 # `screen -r stargarden` shows the live TUI; systemd owns the session and
 # restarts it (and the program) if either exits.
