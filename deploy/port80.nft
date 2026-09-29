@@ -1,0 +1,19 @@
+#!/usr/sbin/nft -f
+# Port 80 on the Pi reaches the web console on 7710, so http://<pi>/ works.
+# Only traffic addressed to the Pi itself: a laptop on the Pi's access point
+# browsing the wider internet through it is left alone. Loaded at boot by
+# stargarden-port80.service; rerunnable (the table is flushed first).
+
+table inet stargarden {}
+flush table inet stargarden
+
+table inet stargarden {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        fib daddr type local tcp dport 80 redirect to :7710
+    }
+    chain output {
+        type nat hook output priority -100; policy accept;
+        fib daddr type local tcp dport 80 redirect to :7710
+    }
+}

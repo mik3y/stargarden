@@ -231,8 +231,9 @@ audio device) on the laptop and commit it; the Pi runs it as is. Assets rsync
 from `assets-dev/` by default (`STARGARDEN_ASSETS=~/stargarden-assets just
 deploy` for the real library) into `~/stargarden-assets` on the Pi, which is
 `assets.root`. The code lands in `~/stargarden` with `web/dist` built on the
-laptop, since the Pi has no node; the web console is then at `http://<pi>:7710/`
-(no login, so the Pi's network stays private).
+laptop, since the Pi has no node; the web console is then at `http://<pi>/`
+(an nftables rule, `deploy/port80.nft`, sends port 80 to 7710; no login, so the
+Pi's network stays private).
 
 The service (`deploy/stargarden.service`, installed by `deploy/prep.sh`) runs
 the program inside a detached `screen` session owned by the ssh user, so
@@ -245,7 +246,7 @@ In the field the Pi makes its own network. `stargarden-wifi.service`
 (`deploy/wifi-watch.sh`) watches the Wi-Fi: after 60 seconds without a
 connection it raises an access point, SSID `stargarden`, password `star4321`,
 with the Pi at `10.42.0.1`, so a laptop or phone can join it and open
-`http://10.42.0.1:7710/`. While nobody is on the access point it tries the
+`http://10.42.0.1/`. While nobody is on the access point it tries the
 known networks again every ten minutes; with someone connected it stays up.
 `just prep` creates the NetworkManager profile (`AP_SSID` and `AP_PSK` in the
 environment override the defaults) and installs the service; `just deploy`

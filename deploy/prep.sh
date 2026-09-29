@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Prepares this Raspberry Pi to run Stargarden at boot, inside a screen session
-# (and a fallback Wi-Fi access point for when the site has no network),
+# (with port 80 forwarded to the web console, and a fallback Wi-Fi access
+# point for when the site has no network),
 # owned by the user running this script (`screen -r stargarden` to watch the
 # console). Run by `just prep` after the code has been rsync'd to ~/stargarden.
 # Idempotent: rerun it whenever it changes. Assumes Raspberry Pi OS with
@@ -9,7 +10,7 @@
 set -euo pipefail
 
 code="$HOME/stargarden"
-packages=(screen rsync libportaudio2 libsndfile1 bluez iw dnsmasq-base)
+packages=(screen rsync libportaudio2 libsndfile1 bluez iw dnsmasq-base nftables)
 groups=(dialout audio bluetooth plugdev)  # DMX serial port, audio device, BLE scanner, USB
 AP=stargarden-ap  # the fallback access point (deploy/wifi-watch.sh raises it)
 AP_SSID=${AP_SSID:-stargarden}
@@ -65,12 +66,12 @@ fi
 
 echo "== services"
 deploy/install-services.sh >/dev/null
-sudo systemctl enable stargarden stargarden-wifi
-sudo systemctl restart stargarden stargarden-wifi
+sudo systemctl enable stargarden stargarden-wifi stargarden-port80
+sudo systemctl restart stargarden stargarden-wifi stargarden-port80
 sleep 2
 systemctl --no-pager status stargarden | head -5
 
 echo
-echo "done. \`screen -r stargarden\` (or \`just attach\`) shows the console; the web console is on :7710."
-echo "with no wifi for 60s the Pi raises its own network: ssid $AP_SSID, console at http://${AP_ADDRESS%/*}:7710/."
+echo "done. \`screen -r stargarden\` (or \`just attach\`) shows the console; the web console is at http://$(hostname)/ (port 80 -> 7710)."
+echo "with no wifi for 60s the Pi raises its own network: ssid $AP_SSID, console at http://${AP_ADDRESS%/*}/."
 echo "fill in configs/production.toml (coordinates, sensor MACs) on the laptop and \`just deploy\`."

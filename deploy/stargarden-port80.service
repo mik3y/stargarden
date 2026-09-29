@@ -1,0 +1,17 @@
+# Installed by deploy/install-services.sh with @HOME@ filled in.
+# Loads deploy/port80.nft: port 80 on the Pi forwards to the web console on 7710.
+
+[Unit]
+Description=Stargarden port 80 to the web console
+After=network-pre.target
+Wants=network-pre.target
+Before=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f @HOME@/stargarden/deploy/port80.nft
+ExecStop=/usr/sbin/nft delete table inet stargarden
+
+[Install]
+WantedBy=multi-user.target
