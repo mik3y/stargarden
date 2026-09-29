@@ -55,7 +55,7 @@ Drives a single PortAudio output stream and mixes three layers:
 
 * **Bed**: looping ambient forest recordings. Beds are ordinary stereo files; the engine spreads them across the quad field (decorrelated front/rear with slow drift). Bed changes crossfade.
 * **Discretes**: mono one-shot sounds (bird calls, wing flaps) fired on a randomized schedule, each given a position or a motion trajectory and rendered with equal-power panning across the four speakers. Preloaded into memory.
-* **Music**: the show track. While music plays, the bed ducks to a configured low level (the forest never fully disappears) and discretes are suppressed; both return when the track ends.
+* **Music**: the show track, played as dual stereo: both left speakers carry the left channel and both right speakers the right, at equal level, so a listener at the centre hears the mix's width across the space (the beds' mirrored rear pair would fold it toward a phantom overhead). While music plays, the bed ducks to a configured low level (the forest never fully disappears) and discretes are suppressed; both return when the track ends.
 
 Files are decoded with `soundfile` (WAV/FLAC/OGG/MP3). Beds and music are streamed from disk by a decode thread feeding ring buffers, so the audio callback never touches the filesystem. Per-layer gain is adjustable live from the console; overall peak volume is managed by the external amplifier.
 

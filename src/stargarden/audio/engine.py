@@ -162,9 +162,13 @@ class AudioEngine:
     # -- music ----------------------------------------------------------------
 
     def play_music(self, entry: MusicEntry) -> None:
+        # Dual stereo: both left speakers carry L, both right speakers carry R, at equal
+        # level. The beds' mirrored rear pair would put each channel on a diagonal, which
+        # sums to a phantom overhead for a listener at the centre and loses the width.
         self.stop_music(fade_s=0.5)
         source = StreamSource(entry.path, self.cfg.samplerate, loop=False)
-        voice = Voice(f"music:{entry.path.stem}", source, Spread(rear=0.35), self.cfg.samplerate, gain=entry.gain, fade_in_s=1.0)
+        spread = Spread(rear=0.5, swap_rear=False)
+        voice = Voice(f"music:{entry.path.stem}", source, spread, self.cfg.samplerate, gain=entry.gain, fade_in_s=1.0)
         voice.on_finished = self._music_finished
         self.mixer.duck(Layer.BED, self.cfg.duck_level, self.cfg.duck_fade_s)
         self.mixer.add(Layer.MUSIC, voice)
