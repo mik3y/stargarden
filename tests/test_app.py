@@ -17,6 +17,8 @@ def make_config(tmp_path: Path, assets: Path) -> Config:
         f"""
 [schedule]
 enabled = false
+[state]
+path = "{tmp_path}/state.json"
 [timers]
 show_delay_s = 0.3
 show_repeat_delay_s = 0.3

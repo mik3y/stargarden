@@ -95,7 +95,7 @@ Computes today's dusk/dawn from configured coordinates and requests `OFF ↔ AMB
 
 ### Consoles
 
-Both consoles show the same things — recent log lines, current state and timers, presence sensor status, virtual fixture swatches, per-layer volume and the lighting peak — and offer the same controls: force/release a state, override day/night, fake platform/walkway motion, fire a lightning strike or a discrete sound, step to the next lighting program, run the setup check, toggle debug logging, nudge levels. They share one model, `console.py`:
+Both consoles show the same things — recent log lines, current state and timers, presence sensor status, virtual fixture swatches, per-layer volume and the lighting peak — and offer the same controls: force/release a state, override day/night, fake platform/walkway motion, fire a lightning strike or a discrete sound, step to the next lighting program, run the setup check, toggle debug logging, nudge levels; the web console also checks programs in and out of the random rotation, plays one by name, and resets to the config defaults. They share one model, `console.py`:
 
 * `Status` is the snapshot a status panel renders; `Console.fixtures()` is the swatch preview; `LogBuffer` numbers log records so every console reads from where it left off.
 * `Console` methods marked `@action` are the controls, callable by name (`Console.act("force", {"state": "show"})`) with plain JSON-ish arguments, so the web API needs no per-action code.
@@ -134,6 +134,14 @@ assets/
 ```
 
 Each music playlist entry may name a specific show lighting theme; otherwise one is chosen at random from the show-theme pool.
+
+Settings changed from a console persist: the audio levels, the lighting peak,
+and which programs are out of the random rotation are written to a small JSON
+file (`[state] path`, default `~/.local/state/stargarden/state.json`, outside
+the code directory so deploys leave it alone) and applied over the config on
+the next launch. Only changes are stored, and disabled programs rather than
+enabled ones, so a program added later joins the rotation by itself. "Reset to
+defaults" in the web console (or deleting the file) returns to the config.
 
 ## Development
 

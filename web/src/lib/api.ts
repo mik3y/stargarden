@@ -35,6 +35,16 @@ export interface Status {
   debug: boolean;
   /** The setup check is walking the corners (tone per speaker, colors per bar). */
   check: boolean;
+  /** Every lighting program by pool: in the random rotation or not, and which is on now. */
+  programs: Program[];
+}
+
+/** `console.ProgramStatus`. */
+export interface Program {
+  name: string;
+  pool: "ambient" | "show";
+  enabled: boolean;
+  playing: boolean;
 }
 
 /** `console.CellPreview`: one cell, previewed as if the peak were 1.0. */

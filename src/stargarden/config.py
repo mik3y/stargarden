@@ -143,6 +143,13 @@ class WebConfig:
 
 
 @dataclass(frozen=True)
+class StateConfig:
+    """Where console overrides (levels, peak, disabled programs) persist; outside the code directory."""
+
+    path: Path = Path("~/.local/state/stargarden/state.json")
+
+
+@dataclass(frozen=True)
 class Config:
     path: Path
     assets_root: Path
@@ -155,6 +162,7 @@ class Config:
     lightning: LightningConfig = field(default_factory=LightningConfig)
     presence: PresenceConfig = field(default_factory=PresenceConfig)
     web: WebConfig = field(default_factory=WebConfig)
+    state: StateConfig = field(default_factory=StateConfig)
 
 
 def _coerce(kind: Any, value: Any, where: str) -> Any:
@@ -213,7 +221,7 @@ def _table_list(cls: type, items: Any, where: str) -> tuple:
 def load_config(path: Path) -> Config:
     with open(path, "rb") as f:
         raw = tomllib.load(f)
-    known = {"site", "schedule", "timers", "audio", "discretes", "lighting", "lightning", "presence", "web", "assets"}
+    known = {"site", "schedule", "timers", "audio", "discretes", "lighting", "lightning", "presence", "web", "assets", "state"}
     unknown = sorted(set(raw) - known)
     if unknown:
         raise ConfigError(f"{path}: unknown sections {unknown}")
@@ -233,6 +241,12 @@ def load_config(path: Path) -> Config:
     if len(audio.channel_map) != 4 or len(set(audio.channel_map)) != 4 or min(audio.channel_map) < 1:
         raise ConfigError(f"audio.channel_map: expected four distinct output channels numbered from 1, got {list(audio.channel_map)}")
 
+    state = _fill(StateConfig, raw.get("state", {}), "state")
+    state_path = state.path.expanduser()
+    if not state_path.is_absolute():
+        state_path = path.parent / state_path
+    state = replace(state, path=state_path)
+
     assets_raw = raw.get("assets", {})
     root = Path(assets_raw.get("root", "assets")).expanduser()  # "~/stargarden-assets" works for any service user
     if not root.is_absolute():
@@ -250,4 +264,5 @@ def load_config(path: Path) -> Config:
         lightning=_fill(LightningConfig, raw.get("lightning", {}), "lightning"),
         presence=presence,
         web=_fill(WebConfig, raw.get("web", {}), "web"),
+        state=state,
     )

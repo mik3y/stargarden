@@ -17,6 +17,7 @@ def test_dev_config_loads() -> None:
     assert cfg.lightning.states == ("presence",) and cfg.lightning.mean_interval_s == 120
     assert cfg.audio.speakers[2] == (-1.0, -1.0)
     assert (cfg.web.enabled, cfg.web.host, cfg.web.port) == (True, "127.0.0.1", 7710)
+    assert cfg.state.path == Path.home() / ".local/state/stargarden/state.json"  # outside the repo, "~" expanded
 
 
 def test_production_config_loads() -> None:
@@ -39,6 +40,9 @@ def test_defaults_and_unknown_keys(tmp_path: Path) -> None:
     assert cfg.timers.show_repeat_delay_s == 900.0
     assert cfg.presence.vacancy_timeout_s == 900.0
     assert cfg.lighting.peak == 1.0
+
+    path.write_text("[state]\npath = 'overrides.json'\n")
+    assert load_config(path).state.path == tmp_path / "overrides.json"  # relative to the config file
 
     path.write_text("[lighting]\npeak = 1.5\n")
     with pytest.raises(ConfigError, match="lighting.peak"):

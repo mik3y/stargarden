@@ -6,7 +6,7 @@ import logging
 import random
 from collections.abc import Coroutine, Iterable
 
-from .audio import AudioEngine
+from .audio import AudioEngine, Layer
 from .check import SetupCheck
 from .conductor import Conductor, State
 from .config import Config, ConfigError, SensorRole
@@ -17,6 +17,7 @@ from .lightning import Lightning
 from .manifest import Manifest, MusicEntry
 from .presence import OccupancyModel
 from .scheduler import SunSchedule
+from .state import Overrides, StateStore
 
 log = logging.getLogger(__name__)
 
@@ -33,9 +34,18 @@ class Stargarden:
         self.occupancy = OccupancyModel(config.presence.vacancy_timeout_s)
         self.schedule = SunSchedule(config.site, config.schedule)
         self.night_override: bool | None = None
+        self.store = StateStore(config.state.path)
+        self.overrides: Overrides = self.store.load()
+        self._save_handle: asyncio.TimerHandle | None = None
         self.patch = Patch.from_config(config.lighting)
-        self.lighting = LightingEngine(self.patch, make_driver(config.lighting), config.lighting, pick_ambient(self.rng), self.rng)
+        first = pick_ambient(self.rng, enabled=self.enabled_themes(AMBIENT_THEMES))
+        self.lighting = LightingEngine(self.patch, make_driver(config.lighting), config.lighting, first, self.rng)
         self.audio = AudioEngine(config.audio, config.discretes, manifest, self.rng, self._track_finished_from_audio_thread)
+        for name, level in self.overrides.levels.items():
+            if name in Layer.__members__.values():
+                self.audio.set_level(Layer(name), level)
+        if self.overrides.peak is not None:
+            self.lighting.set_peak(self.overrides.peak)
         unknown = set(config.lightning.states) - {s.value for s in State}
         if unknown:
             raise ConfigError(f"lightning.states: unknown states {sorted(unknown)}")
@@ -98,6 +108,9 @@ class Stargarden:
                     self.shutdown()
         finally:
             self.audio.stop()
+            if self._save_handle is not None:  # a change still waiting for its debounce
+                self._save_handle.cancel()
+                self._save_state()
 
     def shutdown(self) -> None:
         for task in self._tasks:
@@ -121,8 +134,88 @@ class Stargarden:
         while True:
             await asyncio.sleep(self.config.timers.ambient_theme_rotation_s)
             if self.conductor.state in (State.AMBIENT, State.PRESENCE):
-                self.ambient_theme = pick_ambient(self.rng, avoid=self.ambient_theme)
+                self.ambient_theme = self._pick_ambient()
                 self.lighting.set_theme(self.ambient_theme, fade_s=60.0)
+
+    # -- console settings that persist: levels, peak, program choices ----------
+
+    SAVE_DELAY_S = 1.0  # level nudges come in bursts; write once they settle
+
+    def set_level(self, layer: Layer, level: float) -> None:
+        self.audio.set_level(layer, level)
+        self.overrides.levels[layer.value] = self.audio.level(layer)
+        self._touch_state()
+
+    def set_peak(self, peak: float) -> None:
+        self.lighting.set_peak(peak)
+        self.overrides.peak = self.lighting.peak
+        self._touch_state()
+
+    def enabled_themes(self, pool: dict[str, Theme]) -> list[str]:
+        return [name for name in pool if name not in self.overrides.disabled_themes]
+
+    def set_theme_enabled(self, name: str, enabled: bool) -> None:
+        """Put a program into the random rotation or take it out; at least one per pool stays in."""
+        if name in AMBIENT_THEMES:
+            kind, pool = "ambient", AMBIENT_THEMES
+        elif name in SHOW_THEMES:
+            kind, pool = "show", SHOW_THEMES
+        else:
+            raise ValueError(f"unknown program {name!r}")
+        if not enabled and all(n == name for n in self.enabled_themes(pool)):
+            raise ValueError(f"at least one {kind} program must stay enabled")
+        if enabled:
+            self.overrides.disabled_themes.discard(name)
+        else:
+            self.overrides.disabled_themes.add(name)
+        log.info("programs: %s %s", name, "enabled" if enabled else "disabled")
+        self._touch_state()
+        if not enabled and pool is AMBIENT_THEMES and self.ambient_theme.name == name:
+            self.ambient_theme = self._pick_ambient()  # a show in progress keeps its theme until it ends
+            if self.conductor.state in (State.AMBIENT, State.PRESENCE):
+                self.lighting.set_theme(self.ambient_theme, fade_s=6.0)
+
+    def set_theme(self, name: str, fade_s: float = 3.0) -> Theme:
+        """Play a program now, whatever the rotation would have picked."""
+        try:
+            theme = get_theme(name)
+        except KeyError:
+            raise ValueError(f"unknown program {name!r}") from None
+        if name in AMBIENT_THEMES:
+            self.ambient_theme = theme
+        elif name in SHOW_THEMES:
+            self.show_theme = theme
+        self.lighting.set_theme(theme, fade_s=fade_s)
+        return theme
+
+    def reset_overrides(self) -> None:
+        """Back to the config file: levels, peak, and every program in the rotation."""
+        levels = self.config.audio.levels
+        for layer, level in ((Layer.BED, levels.bed), (Layer.DISCRETES, levels.discretes), (Layer.MUSIC, levels.music)):
+            self.audio.set_level(layer, level)
+        self.lighting.set_peak(self.config.lighting.peak)
+        self.overrides = Overrides()
+        log.info("state: reset to the config defaults")
+        self._touch_state()
+
+    def _pick_ambient(self) -> Theme:
+        return pick_ambient(self.rng, avoid=self.ambient_theme, enabled=self.enabled_themes(AMBIENT_THEMES))
+
+    def _pick_show(self) -> Theme:
+        return pick_show(self.rng, avoid=self.show_theme, enabled=self.enabled_themes(SHOW_THEMES))
+
+    def _touch_state(self) -> None:
+        if self._loop is None or not self._loop.is_running():
+            self._save_state()
+        elif self._save_handle is None:
+            self._save_handle = self._loop.call_later(self.SAVE_DELAY_S, self._save_state)
+
+    def _save_state(self) -> None:
+        self._save_handle = None
+        try:
+            self.store.save(self.overrides)
+        except OSError as e:
+            log.warning("state: could not write %s: %s", self.store.path, e)
 
     def next_theme(self, fade_s: float = 3.0) -> Theme:
         """Step to the next lighting program in the current mode's pool, in the pool's
@@ -171,10 +264,10 @@ class Stargarden:
             self.conductor.track_finished()
             return
         try:
-            theme = get_theme(track.theme) if track.theme else pick_show(self.rng, avoid=self.show_theme)
+            theme = get_theme(track.theme) if track.theme else self._pick_show()
         except KeyError:
             log.warning("show: %s names unknown theme %r; picking from the pool", track.title, track.theme)
-            theme = pick_show(self.rng, avoid=self.show_theme)
+            theme = self._pick_show()
         log.info("show: %s with theme %s", track.title, theme.name)
         lights_out = self.config.timers.lights_out_s
         self.lighting.fade_master(0.0, lights_out)

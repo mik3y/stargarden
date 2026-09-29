@@ -18,6 +18,7 @@ from .audio import Layer
 from .conductor import State
 from .config import SensorRole
 from .lighting.color import RGB
+from .lighting.themes import AMBIENT_THEMES, SHOW_THEMES
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +106,16 @@ def debug_enabled() -> bool:
 
 
 @dataclass(frozen=True)
+class ProgramStatus:
+    """One lighting program: its pool, whether the random rotation may pick it, whether it is on now."""
+
+    name: str
+    pool: str  # "ambient" | "show"
+    enabled: bool
+    playing: bool
+
+
+@dataclass(frozen=True)
 class Status:
     """Everything a console's status panel shows, as plain data (JSON-ready)."""
 
@@ -132,6 +143,7 @@ class Status:
     levels: dict[str, float]  # audio layers and the lighting peak, in LEVELS order
     debug: bool
     check: bool  # the setup check is walking the corners
+    programs: list[ProgramStatus]
 
 
 @dataclass(frozen=True)
@@ -209,7 +221,17 @@ class Console:
             levels={name: self.level(name) for name in LEVELS},
             debug=debug_enabled(),
             check=p.check.running,
+            programs=self.programs(),
         )
+
+    def programs(self) -> list[ProgramStatus]:
+        p = self.program
+        disabled, playing = p.overrides.disabled_themes, p.lighting.theme.name
+        return [
+            ProgramStatus(name, pool, name not in disabled, name == playing)
+            for pool, themes in (("ambient", AMBIENT_THEMES), ("show", SHOW_THEMES))
+            for name in themes
+        ]
 
     def fixtures(self) -> list[FixturePreview]:
         p = self.program
@@ -304,6 +326,26 @@ class Console:
         return self.set_check(not self.program.check.running)
 
     @action
+    def set_theme_enabled(self, name: str, enabled: bool) -> bool:
+        """Put a lighting program into the random rotation or take it out (at least one per pool stays in)."""
+        if not isinstance(name, str) or not isinstance(enabled, bool):
+            raise ValueError("name must be a program name and enabled true or false")
+        self.program.set_theme_enabled(name, enabled)
+        return enabled
+
+    @action
+    def set_theme(self, name: str) -> str:
+        """Play a lighting program now, by name."""
+        if not isinstance(name, str):
+            raise ValueError("name must be a program name")
+        return self.program.set_theme(name).name
+
+    @action
+    def reset_defaults(self) -> None:
+        """Levels, peak and program choices back to the config file's values."""
+        self.program.reset_overrides()
+
+    @action
     def next_theme(self) -> str:
         """Step to the next lighting program in the current mode's pool (show themes during a show,
         ambient ones otherwise), in a fixed order; returns its name."""
@@ -318,9 +360,9 @@ class Console:
             raise ValueError("value must be a number")
         value = min(1.0, max(0.0, float(value)))
         if name == PEAK:
-            self.program.lighting.set_peak(value)
+            self.program.set_peak(value)
         else:
-            self.program.audio.set_level(Layer(name), value)
+            self.program.set_level(Layer(name), value)
         return self.level(name)
 
     @action

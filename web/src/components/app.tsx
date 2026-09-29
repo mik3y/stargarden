@@ -14,6 +14,7 @@ import ActionsCard from "@/components/actions-card";
 import FixturesCard from "@/components/fixtures-card";
 import LevelsCard from "@/components/levels-card";
 import LogPane from "@/components/log-pane";
+import ProgramsCard from "@/components/programs-card";
 import StateCard from "@/components/state-card";
 import { type Act, act } from "@/lib/api";
 import { useConsole } from "@/lib/hooks";
@@ -107,6 +108,7 @@ const App = () => {
               <Stack spacing={3}>
                 <FixturesCard fixtures={fixtures} />
                 <LevelsCard levels={status?.levels} act={run} />
+                <ProgramsCard programs={status?.programs} act={run} />
                 <ActionsCard status={status} act={run} />
               </Stack>
             </Grid>

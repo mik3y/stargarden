@@ -13,6 +13,7 @@ odd/even dance.
 
 import math
 import random
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from .color import BLACK, RGB, mix, sample_palette
@@ -324,14 +325,17 @@ def get_theme(name: str) -> Theme:
     return theme
 
 
-def pick_ambient(rng: random.Random, avoid: Theme | None = None) -> Theme:
-    return _pick(rng, AMBIENT_THEMES, avoid)
+def pick_ambient(rng: random.Random, avoid: Theme | None = None, enabled: Collection[str] | None = None) -> Theme:
+    return _pick(rng, AMBIENT_THEMES, avoid, enabled)
 
 
-def pick_show(rng: random.Random, avoid: Theme | None = None) -> Theme:
-    return _pick(rng, SHOW_THEMES, avoid)
+def pick_show(rng: random.Random, avoid: Theme | None = None, enabled: Collection[str] | None = None) -> Theme:
+    return _pick(rng, SHOW_THEMES, avoid, enabled)
 
 
-def _pick(rng: random.Random, pool: dict[str, Theme], avoid: Theme | None) -> Theme:
-    candidates = [t for t in pool.values() if t is not avoid] or list(pool.values())
+def _pick(rng: random.Random, pool: dict[str, Theme], avoid: Theme | None, enabled: Collection[str] | None) -> Theme:
+    """A random theme from the pool, not `avoid` if there is a choice, and only from
+    `enabled` names when given (the whole pool if that leaves nothing)."""
+    pool_themes = [t for t in pool.values() if enabled is None or t.name in enabled] or list(pool.values())
+    candidates = [t for t in pool_themes if t is not avoid] or pool_themes
     return rng.choice(candidates)
