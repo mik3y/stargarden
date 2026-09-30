@@ -3,6 +3,7 @@ conductor transitions into audio and lighting commands."""
 
 import asyncio
 import logging
+import math
 import random
 from collections.abc import Coroutine, Iterable
 
@@ -24,6 +25,15 @@ log = logging.getLogger(__name__)
 
 CONDUCTOR_TICK_S = 0.2
 SCHEDULE_POLL_S = 15.0
+
+# Timing settings a console may change (`set_setting`), persisted as overrides over the config
+# file's values: how often discrete sounds and lightning come.
+SETTINGS: tuple[str, ...] = (
+    "discretes.min_interval_s",
+    "discretes.max_interval_s",
+    "lightning.mean_interval_s",
+    "lightning.min_interval_s",
+)
 
 
 class Stargarden:
@@ -48,6 +58,7 @@ class Stargarden:
                 self.audio.set_level(Layer(name), level)
         if self.overrides.peak is not None:
             self.lighting.set_peak(self.overrides.peak)
+        self.overrides.settings = {k: v for k, v in self.overrides.settings.items() if k in SETTINGS}  # a setting since dropped
         unknown = set(config.lightning.states) - {s.value for s in State}
         if unknown:
             raise ConfigError(f"lightning.states: unknown states {sorted(unknown)}")
@@ -55,6 +66,7 @@ class Stargarden:
             config.lightning, self.patch, self.lighting, self.audio, manifest, self.rng, allowed=self.lightning_allowed
         )
         self.check = SetupCheck(self.conductor, self.lighting, self.audio, self.patch)
+        self._apply_settings()
         self.ambient_theme: Theme = self.lighting.theme
         self.show_theme: Theme | None = None
         self.last_music: MusicEntry | None = None
@@ -233,13 +245,55 @@ class Stargarden:
             self.conductor.force(State.SHOW)  # released by itself when the track ends
         return track
 
+    # -- timing settings ------------------------------------------------------
+
+    def setting_defaults(self) -> dict[str, float]:
+        """The config file's values, in SETTINGS order."""
+        d, li = self.config.discretes, self.config.lightning
+        return {
+            "discretes.min_interval_s": d.min_interval_s,
+            "discretes.max_interval_s": d.max_interval_s,
+            "lightning.mean_interval_s": li.mean_interval_s,
+            "lightning.min_interval_s": li.min_interval_s,
+        }
+
+    def settings(self) -> dict[str, float]:
+        """What is in force: the defaults with the console's overrides on top."""
+        return {name: self.overrides.settings.get(name, default) for name, default in self.setting_defaults().items()}
+
+    def set_setting(self, name: str, value: float) -> float:
+        """Change a timing setting live; it persists until reset. A value equal to the default drops the override."""
+        if name not in SETTINGS:
+            raise ValueError(f"unknown setting {name!r}; have {list(SETTINGS)}")
+        if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name}: expected a positive number")
+        before = dict(self.overrides.settings)
+        if float(value) == self.setting_defaults()[name]:
+            self.overrides.settings.pop(name, None)
+        else:
+            self.overrides.settings[name] = float(value)
+        try:
+            self._apply_settings()
+        except ValueError:
+            self.overrides.settings = before
+            raise
+        log.info("settings: %s = %g", name, value)
+        self._touch_state()
+        return self.settings()[name]
+
+    def _apply_settings(self) -> None:
+        s = self.settings()
+        self.audio.set_discretes_interval(s["discretes.min_interval_s"], s["discretes.max_interval_s"])
+        self.lightning.set_intervals(s["lightning.mean_interval_s"], s["lightning.min_interval_s"])
+
     def reset_overrides(self) -> None:
-        """Back to the config file: levels, peak, and every program and track in the rotation."""
+        """Back to the config file: levels, peak, timing, and every program and track in the rotation."""
         levels = self.config.audio.levels
         for layer, level in ((Layer.BED, levels.bed), (Layer.DISCRETES, levels.discretes), (Layer.MUSIC, levels.music)):
             self.audio.set_level(layer, level)
         self.lighting.set_peak(self.config.lighting.peak)
         self.overrides = Overrides()
+        self._apply_settings()
         log.info("state: reset to the config defaults")
         self._touch_state()
 

@@ -17,6 +17,7 @@ import FixturesCard from "@/components/fixtures-card";
 import LevelsCard from "@/components/levels-card";
 import LogPane from "@/components/log-pane";
 import ProgramsCard from "@/components/programs-card";
+import SettingsCard from "@/components/settings-card";
 import StateCard from "@/components/state-card";
 import TracksCard from "@/components/tracks-card";
 import { type Act, act } from "@/lib/api";
@@ -151,7 +152,10 @@ const App = () => {
               <TracksCard tracks={status?.tracks} act={run} />
             </Grid>
             <Grid size={{ xs: 12, md: 5 }}>
-              <ProgramsCard programs={status?.programs} act={run} />
+              <Stack spacing={3}>
+                <ProgramsCard programs={status?.programs} act={run} />
+                <SettingsCard settings={status?.settings} act={run} />
+              </Stack>
             </Grid>
           </Grid>
         )}

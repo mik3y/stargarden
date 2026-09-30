@@ -13,7 +13,7 @@ import random
 import time
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .audio import AudioEngine
 from .config import LightningConfig
@@ -151,9 +151,23 @@ class Lightning:
     def time_to_next(self) -> float | None:
         return max(0.0, self.next_at - self._clock()) if self.cfg.enabled else None
 
+    @property
+    def intervals_s(self) -> tuple[float, float]:
+        return self.cfg.mean_interval_s, self.cfg.min_interval_s
+
+    def set_intervals(self, mean_s: float, min_s: float) -> None:
+        """Strikes about `mean_s` apart, never closer than `min_s`; the next one is drawn afresh."""
+        if mean_s <= 0 or min_s <= 0:
+            raise ValueError(f"lightning intervals must be positive, got mean {mean_s}, min {min_s}")
+        self.cfg = replace(self.cfg, mean_interval_s=mean_s, min_interval_s=min_s)
+        self.next_at = self._clock() + self._wait()
+
     async def run(self) -> None:
         while True:
-            await asyncio.sleep(max(0.0, self.next_at - self._clock()))
+            remaining = self.next_at - self._clock()
+            if remaining > 0:
+                await asyncio.sleep(min(remaining, 1.0))  # in short naps, so a rescheduled next_at is honoured
+                continue
             if self.cfg.enabled and self._allowed():
                 self.strike()
             self.next_at = self._clock() + self._wait()

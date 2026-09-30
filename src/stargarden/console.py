@@ -129,6 +129,15 @@ class TrackStatus:
 
 
 @dataclass(frozen=True)
+class SettingStatus:
+    """One timing setting: what is in force and what the config file says."""
+
+    name: str
+    value: float
+    default: float
+
+
+@dataclass(frozen=True)
 class Status:
     """Everything a console's status panel shows, as plain data (JSON-ready)."""
 
@@ -159,6 +168,7 @@ class Status:
     check: bool  # the setup check is walking the corners
     programs: list[ProgramStatus]
     tracks: list[TrackStatus]
+    settings: list[SettingStatus]  # in app.SETTINGS order
 
 
 @dataclass(frozen=True)
@@ -239,7 +249,12 @@ class Console:
             check=p.check.running,
             programs=self.programs(),
             tracks=self.tracks(),
+            settings=self.settings(),
         )
+
+    def settings(self) -> list[SettingStatus]:
+        current, defaults = self.program.settings(), self.program.setting_defaults()
+        return [SettingStatus(name, current[name], defaults[name]) for name in defaults]
 
     def programs(self) -> list[ProgramStatus]:
         p = self.program
@@ -389,8 +404,15 @@ class Console:
         return self.program.play_track(id).id
 
     @action
+    def set_setting(self, name: str, value: float) -> float:
+        """Change a timing setting (see `app.SETTINGS`), live and persisted; returns what is in force."""
+        if not isinstance(name, str):
+            raise ValueError("name must be a setting name")
+        return self.program.set_setting(name, value)
+
+    @action
     def reset_defaults(self) -> None:
-        """Levels, peak, program and track choices back to the config file's values."""
+        """Levels, peak, timing, program and track choices back to the config file's values."""
         self.program.reset_overrides()
 
     @action

@@ -80,8 +80,11 @@ class AudioConfig:
 
 @dataclass(frozen=True)
 class DiscretesConfig:
-    min_interval_s: float = 25.0
-    max_interval_s: float = 120.0
+    """How often a discrete sound plays while ambience runs: a uniform wait between these. Adjustable
+    live from the console (and persisted) like the lightning intervals; the config is the default."""
+
+    min_interval_s: float = 40.0
+    max_interval_s: float = 90.0  # about one a minute
 
 
 @dataclass(frozen=True)
@@ -96,9 +99,9 @@ class FixtureConfig:
 @dataclass(frozen=True)
 class LightningConfig:
     enabled: bool = True
-    mean_interval_s: float = 1200.0  # strikes arrive at random, this far apart on average
-    min_interval_s: float = 300.0
-    states: tuple[str, ...] = ("presence",)  # program states in which lightning may strike
+    mean_interval_s: float = 200.0  # strikes arrive at random, this far apart on average (before the floor below)
+    min_interval_s: float = 150.0  # never closer than this: with the mean above, every three to five minutes or so
+    states: tuple[str, ...] = ("presence", "show")  # program states in which lightning may strike
     thunder_delay_s: tuple[float, float] = (0.3, 2.5)  # flash → thunder; a short delay is a close strike
 
 

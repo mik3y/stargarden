@@ -6,6 +6,7 @@ import logging
 import math
 import random
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -92,6 +93,16 @@ class AudioEngine:
             self.current_bed = None
 
     # -- discretes ------------------------------------------------------------
+
+    @property
+    def discretes_interval_s(self) -> tuple[float, float]:
+        return self._discretes_cfg.min_interval_s, self._discretes_cfg.max_interval_s
+
+    def set_discretes_interval(self, min_s: float, max_s: float) -> None:
+        """The wait between discrete sounds is drawn from [min_s, max_s]; takes effect after the current wait."""
+        if not 0 < min_s <= max_s:
+            raise ValueError(f"discretes interval: need 0 < min <= max, got {min_s}..{max_s}")
+        self._discretes_cfg = replace(self._discretes_cfg, min_interval_s=min_s, max_interval_s=max_s)
 
     def _clip(self, path: Path) -> np.ndarray:
         clip = self._clips.get(path)

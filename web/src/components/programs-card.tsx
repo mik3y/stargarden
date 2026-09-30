@@ -25,9 +25,9 @@ const POOLS: Program["pool"][] = ["ambient", "show"];
 /**
  * The lighting programs by pool. A checked program is in the random rotation
  * (at least one per pool stays checked; the server refuses the last), "play"
- * puts one on now, and the reset button hands levels, peak, these choices and
- * the track choices back to the config file, after a confirmation. All of it
- * persists on the Pi.
+ * puts one on now, and the reset button hands levels, peak, timing, these
+ * choices and the track choices back to the config file, after a
+ * confirmation. All of it persists on the Pi.
  */
 const ProgramsCard = ({
   programs,
@@ -123,8 +123,9 @@ const ProgramsCard = ({
           <DialogTitle>Reset to defaults?</DialogTitle>
           <DialogContent>
             <DialogContentText>
-              Levels, the lighting peak, the program choices and the track
-              choices go back to the values in the config file.
+              Levels, the lighting peak, the timing settings, the program
+              choices and the track choices go back to the values in the config
+              file.
             </DialogContentText>
           </DialogContent>
           <DialogActions>

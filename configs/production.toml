@@ -73,9 +73,9 @@ position = [0.8, -0.8]
 
 [lightning]
 enabled = true
-mean_interval_s = 1200  # about one strike per 20 minutes of presence
-min_interval_s = 300
-states = ["presence"]
+mean_interval_s = 200  # strikes about this far apart on average, never closer than the floor: every three to five minutes or so
+min_interval_s = 150  # both adjustable live from the console's config page; these are the defaults
+states = ["presence", "show"]  # while someone is on the platform or a show plays; an empty forest stays calm
 thunder_delay_s = [0.3, 2.5]
 
 [presence]

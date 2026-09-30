@@ -40,6 +40,15 @@ export interface Status {
   programs: Program[];
   /** Every show track in manifest order: in the rotation or not, playing, queued for the next show. */
   tracks: Track[];
+  /** The timing settings (`app.SETTINGS`), in order: what is in force and the config file's value. */
+  settings: Setting[];
+}
+
+/** `console.SettingStatus`: values are seconds. */
+export interface Setting {
+  name: string;
+  value: number;
+  default: number;
 }
 
 /** `console.TrackStatus`. */

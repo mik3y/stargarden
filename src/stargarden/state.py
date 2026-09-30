@@ -1,5 +1,6 @@
-"""Console settings that outlive a run: the audio levels, the lighting peak, and
-which programs and tracks are out of the random rotation.
+"""Console settings that outlive a run: the audio levels, the lighting peak,
+which programs and tracks are out of the random rotation, and the timing
+settings (how often discretes and lightning come).
 
 The config file is the committed, deployed source of defaults; this is the
 layer of overrides made from a console, kept in a small JSON file outside the
@@ -26,10 +27,11 @@ class Overrides:
     peak: float | None = None
     disabled_themes: set[str] = field(default_factory=set)
     disabled_tracks: set[str] = field(default_factory=set)  # by manifest id (the entry's `file`)
+    settings: dict[str, float] = field(default_factory=dict)  # setting name → value (app.SETTINGS)
 
     @property
     def empty(self) -> bool:
-        return not self.levels and self.peak is None and not self.disabled_themes and not self.disabled_tracks
+        return not (self.levels or self.peak is not None or self.disabled_themes or self.disabled_tracks or self.settings)
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -41,6 +43,8 @@ class Overrides:
             out["disabled_themes"] = sorted(self.disabled_themes)
         if self.disabled_tracks:
             out["disabled_tracks"] = sorted(self.disabled_tracks)
+        if self.settings:
+            out["settings"] = dict(sorted(self.settings.items()))
         return out
 
     @classmethod
@@ -59,7 +63,15 @@ class Overrides:
             if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
                 raise ValueError(f"{key}: expected a list of names")
             disabled[key] = set(names)
-        return cls({k: float(v) for k, v in levels.items()}, None if peak is None else float(peak), **disabled)
+        settings = data.get("settings", {})
+        if not isinstance(settings, dict) or not all(isinstance(k, str) and _is_number(v) for k, v in settings.items()):
+            raise ValueError("settings: expected {name: number}")
+        return cls(
+            {k: float(v) for k, v in levels.items()},
+            None if peak is None else float(peak),
+            **disabled,
+            settings={k: float(v) for k, v in settings.items()},
+        )
 
 
 def _is_number(v: Any) -> bool:

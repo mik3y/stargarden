@@ -14,7 +14,8 @@ def test_dev_config_loads() -> None:
     assert [f.address for f in cfg.lighting.fixtures] == [1, 39, 77, 115]  # the same four bars as production
     assert cfg.assets_root == (CONFIGS / ".." / "assets-dev")
     assert cfg.schedule.enabled is False
-    assert cfg.lightning.states == ("presence",) and cfg.lightning.mean_interval_s == 120
+    assert cfg.lightning.states == ("presence", "show") and cfg.lightning.mean_interval_s == 120  # the states are the default
+    assert (cfg.discretes.min_interval_s, cfg.discretes.max_interval_s) == (8, 25)
     assert cfg.audio.speakers[2] == (-1.0, -1.0)
     assert (cfg.web.enabled, cfg.web.host, cfg.web.port) == (True, "127.0.0.1", 7710)
     assert cfg.state.path == Path.home() / ".local/state/stargarden/state.json"  # outside the repo, "~" expanded
@@ -27,7 +28,9 @@ def test_production_config_loads() -> None:
     assert len({f.position for f in cfg.lighting.fixtures}) == 4  # one bar per corner
     assert cfg.presence.sensors[0].role is SensorRole.PLATFORM
     assert cfg.audio.levels.music == 0.9
-    assert cfg.lightning.mean_interval_s == 1200 and cfg.lightning.thunder_delay_s == (0.3, 2.5)
+    assert (cfg.lightning.mean_interval_s, cfg.lightning.min_interval_s) == (200, 150) and cfg.lightning.thunder_delay_s == (0.3, 2.5)
+    assert cfg.lightning.states == ("presence", "show")
+    assert (cfg.discretes.min_interval_s, cfg.discretes.max_interval_s) == (40, 90)  # the defaults: about one a minute
     assert cfg.web.host == "0.0.0.0"  # the laptop on the Pi's hotspot reaches the console
     assert cfg.assets_root == Path.home() / "stargarden-assets"  # "~" expands, whoever the service user is
 
