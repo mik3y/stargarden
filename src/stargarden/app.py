@@ -389,7 +389,13 @@ class Stargarden:
         bpm = self.tempo.bpm_for(track)  # asked now, not earlier: the analyzer may have got to it during the blackout
         if bpm is None:
             log.info("show: %s has no tempo yet; %s runs at its own", track.title, theme.name)
-        self.audio.play_music(track)
+        try:
+            self.audio.play_music(track)
+        except Exception:
+            # An undecodable or unreadable file must not strand the program dark in SHOW: say so and move on
+            log.exception("show: cannot play %s (%s)", track.title, track.path.name)
+            self.conductor.track_finished()
+            return
         self.lighting.set_tempo(bpm)
         self.lighting.set_theme(theme)
         self.lighting.fade_master(1.0, 4.0)

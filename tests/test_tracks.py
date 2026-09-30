@@ -150,3 +150,36 @@ async def test_queued_track_plays_next_and_play_now_starts_over(tmp_path: Path) 
         p.shutdown()
 
     await p.run(foreground=scenario())
+
+
+def test_manifest_rejects_formats_the_decoder_cannot_read(tmp_path: Path) -> None:
+    root = assets_with_tracks(tmp_path)
+    (root / "music" / "d.m4a").write_bytes(b"not audio")
+    (root / "manifest.toml").write_text('[[music]]\nfile = "music/d.m4a"\n')
+    with pytest.raises(ManifestError, match="convert_music"):
+        load_manifest(root)
+
+
+@pytest.mark.asyncio
+async def test_a_track_that_cannot_start_ends_the_show_instead_of_stranding_it(tmp_path: Path) -> None:
+    p = program(tmp_path, seconds=3.0)
+    console = Console(p, install_log_buffer("INFO"))
+
+    def broken(entry):  # what an unreadable file does inside the audio engine
+        raise OSError(f"cannot open {entry.path.name}")
+
+    p.audio.play_music = broken  # type: ignore[method-assign]
+
+    async def scenario() -> None:
+        await asyncio.sleep(0.3)
+        console.act("play_track", {"id": "music/b.wav"})
+        assert p.conductor.state is State.SHOW
+        await asyncio.sleep(1.5)
+        assert p.conductor.state is not State.SHOW and p.conductor.forced is None  # back to the natural state
+        assert p.audio.current_music is None and p.lighting.theme.name != "orbit"
+        assert p.lighting.master() > 0 or p.lighting._master.end_value == 1.0  # the lights are on their way back up
+        records, _ = console.log_buffer.since(0)
+        assert any("show: cannot play B (b.wav)" in r.getMessage() for _, r in records)
+        p.shutdown()
+
+    await p.run(foreground=scenario())

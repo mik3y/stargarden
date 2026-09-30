@@ -17,6 +17,11 @@ class ManifestError(Exception):
     pass
 
 
+# What the decoder (libsndfile, see audio/decode.py) reads. AAC/M4A is not among them:
+# scripts/convert_music.py turns those into MP3.
+AUDIO_SUFFIXES = frozenset({".wav", ".wave", ".flac", ".ogg", ".oga", ".opus", ".mp3", ".aif", ".aiff", ".aifc", ".caf", ".w64", ".rf64"})
+
+
 class DiscreteMotion(StrEnum):
     STATIC = "static"  # plays from one random spot
     FLYBY = "flyby"  # travels across the space
@@ -100,6 +105,11 @@ def _entry(root: Path, raw: dict[str, Any], where: str) -> dict[str, Any]:
     path = root / raw["file"]
     if not path.exists():
         raise ManifestError(f"{where}: file not found: {path}")
+    if path.suffix.lower() not in AUDIO_SUFFIXES:
+        raise ManifestError(
+            f"{where}: {path.name}: not a format the program can decode ({', '.join(sorted(AUDIO_SUFFIXES))});"
+            " scripts/convert_music.py converts m4a to mp3"
+        )
     out = {k: v for k, v in raw.items() if k != "file"}
     out["path"] = path
     return out
