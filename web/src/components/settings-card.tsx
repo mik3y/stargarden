@@ -16,6 +16,12 @@ interface Field {
 }
 
 const FIELDS: Record<string, Field> = {
+  "timers.show_delay_s": { group: "shows", label: "first after", unit: "min" },
+  "timers.show_repeat_delay_s": {
+    group: "shows",
+    label: "then every",
+    unit: "min",
+  },
   "discretes.min_interval_s": {
     group: "discretes",
     label: "at least",
@@ -39,6 +45,8 @@ const FIELDS: Record<string, Field> = {
 };
 
 const HINTS: Record<string, string> = {
+  shows:
+    "how long the space stays occupied before the first show, and between one show and the next",
   discretes:
     "a bird call or wing flap, this long after the last, while ambience plays",
   lightning:

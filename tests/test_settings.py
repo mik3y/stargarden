@@ -37,12 +37,22 @@ def test_settings_persist_only_when_they_differ_from_the_config(tmp_path: Path, 
     assert list(defaults) == list(SETTINGS) and [s.name for s in console.status().settings] == list(SETTINGS)
     assert defaults["discretes.min_interval_s"] == 40.0 and defaults["lightning.mean_interval_s"] == 200.0
     assert p.audio.discretes_interval_s == (40.0, 90.0) and p.lightning.intervals_s == (200.0, 150.0)
+    assert defaults["timers.show_delay_s"] == 0.3 and p.conductor.show_delays_s == (0.3, 0.3)  # the test config's
+
+    assert console.act("set_setting", {"name": "timers.show_delay_s", "value": 600}) == 600.0
+    assert console.act("set_setting", {"name": "timers.show_repeat_delay_s", "value": 900}) == 900.0
+    assert p.conductor.show_delays_s == (600.0, 900.0)
 
     assert console.act("set_setting", {"name": "lightning.mean_interval_s", "value": 90}) == 90.0
     assert console.act("set_setting", {"name": "discretes.max_interval_s", "value": 120.5}) == 120.5
     assert p.lightning.intervals_s == (90.0, 150.0) and p.audio.discretes_interval_s == (40.0, 120.5)
     saved = json.loads((tmp_path / "state.json").read_text())
-    assert saved["settings"] == {"discretes.max_interval_s": 120.5, "lightning.mean_interval_s": 90.0}
+    assert saved["settings"] == {
+        "discretes.max_interval_s": 120.5,
+        "lightning.mean_interval_s": 90.0,
+        "timers.show_delay_s": 600.0,
+        "timers.show_repeat_delay_s": 900.0,
+    }
     status = {s.name: s for s in console.status().settings}
     assert (status["lightning.mean_interval_s"].value, status["lightning.mean_interval_s"].default) == (90.0, 200.0)
 
@@ -51,8 +61,10 @@ def test_settings_persist_only_when_they_differ_from_the_config(tmp_path: Path, 
 
     again = program(tmp_path, assets)
     assert again.audio.discretes_interval_s == (40.0, 120.5) and again.lightning.intervals_s == (200.0, 150.0)
+    assert again.conductor.show_delays_s == (600.0, 900.0)
     again.reset_overrides()
     assert again.audio.discretes_interval_s == (40.0, 90.0) and not (tmp_path / "state.json").exists()
+    assert again.conductor.show_delays_s == (0.3, 0.3)
 
 
 def test_settings_are_validated_and_bad_pairs_are_rolled_back(tmp_path: Path, assets: Path) -> None:
@@ -62,7 +74,7 @@ def test_settings_are_validated_and_bad_pairs_are_rolled_back(tmp_path: Path, as
         with pytest.raises(ActionError):
             console.act("set_setting", bad)
     with pytest.raises(ActionError, match="unknown setting"):
-        console.act("set_setting", {"name": "timers.show_delay_s", "value": 5})
+        console.act("set_setting", {"name": "timers.lights_out_s", "value": 5})
     with pytest.raises(ActionError, match="min <= max"):
         console.act("set_setting", {"name": "discretes.min_interval_s", "value": 500})  # above the max
     assert p.audio.discretes_interval_s == (40.0, 90.0) and p.overrides.settings == {}

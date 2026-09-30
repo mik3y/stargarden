@@ -9,6 +9,7 @@ into audio/lighting commands.
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from enum import StrEnum
 
 from .config import TimersConfig
@@ -34,6 +35,8 @@ class Conductor:
         self.occupied = False
         self.forced: State | None = None
         self.show_deadline: float | None = None
+        self._presence_since: float | None = None  # when the current countdown started, and
+        self._after_show = False  # whether it is the repeat delay (after a show) or the first
         self.shows_this_visit = 0
         self._listeners: list[TransitionListener] = []
 
@@ -58,6 +61,20 @@ class Conductor:
         log.info("manual: %s", f"force {state}" if state else "release")
         self.forced = state
         self.tick()
+
+    @property
+    def show_delays_s(self) -> tuple[float, float]:
+        return self._timers.show_delay_s, self._timers.show_repeat_delay_s
+
+    def set_show_delays(self, show_delay_s: float, show_repeat_delay_s: float) -> None:
+        """Wait this long in PRESENCE before the first show, and this long after each show; a countdown
+        already running is re-measured from when it started, so a shorter wait may bring the show at once."""
+        if show_delay_s <= 0 or show_repeat_delay_s <= 0:
+            raise ValueError(f"show delays must be positive, got {show_delay_s}, {show_repeat_delay_s}")
+        self._timers = replace(self._timers, show_delay_s=show_delay_s, show_repeat_delay_s=show_repeat_delay_s)
+        if self.state is State.PRESENCE and self._presence_since is not None:
+            self.show_deadline = self._presence_since + (show_repeat_delay_s if self._after_show else show_delay_s)
+            self.tick()
 
     def track_finished(self) -> None:
         if self.state is not State.SHOW:
@@ -94,12 +111,14 @@ class Conductor:
         old = self.state
         self.state = new
         if new is State.PRESENCE:
-            delay = self._timers.show_repeat_delay_s if old is State.SHOW else self._timers.show_delay_s
-            if old is not State.SHOW:
+            self._after_show = old is State.SHOW
+            delay = self._timers.show_repeat_delay_s if self._after_show else self._timers.show_delay_s
+            if not self._after_show:
                 self.shows_this_visit = 0
-            self.show_deadline = self._clock() + delay
+            self._presence_since = self._clock()
+            self.show_deadline = self._presence_since + delay
         else:
-            self.show_deadline = None
+            self.show_deadline = self._presence_since = None
         if new is State.SHOW:
             self.shows_this_visit += 1
         log.info("state: %s -> %s", old, new)

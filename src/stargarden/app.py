@@ -27,8 +27,11 @@ CONDUCTOR_TICK_S = 0.2
 SCHEDULE_POLL_S = 15.0
 
 # Timing settings a console may change (`set_setting`), persisted as overrides over the config
-# file's values: how often discrete sounds and lightning come.
+# file's values: how long presence waits for the first show and between shows, and how often
+# discrete sounds and lightning come.
 SETTINGS: tuple[str, ...] = (
+    "timers.show_delay_s",
+    "timers.show_repeat_delay_s",
     "discretes.min_interval_s",
     "discretes.max_interval_s",
     "lightning.mean_interval_s",
@@ -249,8 +252,10 @@ class Stargarden:
 
     def setting_defaults(self) -> dict[str, float]:
         """The config file's values, in SETTINGS order."""
-        d, li = self.config.discretes, self.config.lightning
+        t, d, li = self.config.timers, self.config.discretes, self.config.lightning
         return {
+            "timers.show_delay_s": t.show_delay_s,
+            "timers.show_repeat_delay_s": t.show_repeat_delay_s,
             "discretes.min_interval_s": d.min_interval_s,
             "discretes.max_interval_s": d.max_interval_s,
             "lightning.mean_interval_s": li.mean_interval_s,
@@ -283,6 +288,7 @@ class Stargarden:
 
     def _apply_settings(self) -> None:
         s = self.settings()
+        self.conductor.set_show_delays(s["timers.show_delay_s"], s["timers.show_repeat_delay_s"])
         self.audio.set_discretes_interval(s["discretes.min_interval_s"], s["discretes.max_interval_s"])
         self.lightning.set_intervals(s["lightning.mean_interval_s"], s["lightning.min_interval_s"])
 

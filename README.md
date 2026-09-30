@@ -25,7 +25,7 @@ Transitions:
 
 * `OFF ↔ AMBIENT`: driven by the sunset/sunrise scheduler, or manually from the console.
 * `AMBIENT → PRESENCE`: presence detector reports occupied.
-* `PRESENCE → SHOW`: occupancy has persisted for `show_delay` (default 10 minutes; subsequent shows use `show_repeat_delay`).
+* `PRESENCE → SHOW`: occupancy has persisted for `show_delay` (default 10 minutes; subsequent shows use `show_repeat_delay`, default 15). Both are adjustable live from the console's config page, and the change persists.
 * `PRESENCE → AMBIENT`: presence detector reports the space definitively vacated.
 * Any state can be forced manually from the console; a manual state pins until released.
 
@@ -38,7 +38,7 @@ Transitions:
 * **Presence via `bleak` passive BLE scanning.** Two Shelly Blu Motion sensors (platform + walkway) broadcasting **unencrypted** BTHome v2 advertisements; no pairing, no bindkeys. Encryption support can be added later if needed.
 * **Two consoles over one control surface.** `console.py` defines what a console shows (a `Status` snapshot, the fixture preview, the log stream) and what it may do (named actions: force a state, fake a sensor, set a level…). The Textual TUI and the web console are both thin views over it, so a new control lands there once and each front end just draws it.
 * **TUI via Textual.** Logs, state display/override, per-layer volume and lighting peak, and (in dev) simulated fixtures and motion injection.
-* **Web console via aiohttp + React.** The same panels in a browser (`web/`: bun, vite, React, Material UI, dark), served by the program itself from a small JSON API and a WebSocket stream, so a laptop or phone on the site network can drive the installation without a terminal. A second page, config, holds the choices that persist: which lighting programs and which show tracks are in the random rotation, a queue for the next show's track and a way to start a show with a track at once, and the timing settings (how often discretes and lightning come). No login: the Pi's network is private.
+* **Web console via aiohttp + React.** The same panels in a browser (`web/`: bun, vite, React, Material UI, dark), served by the program itself from a small JSON API and a WebSocket stream, so a laptop or phone on the site network can drive the installation without a terminal. A second page, config, holds the choices that persist: which lighting programs and which show tracks are in the random rotation, a queue for the next show's track and a way to start a show with a track at once, and the timing settings (the wait before the first show and between shows, and how often discretes and lightning come). No login: the Pi's network is private.
 * **Scheduling via `astral`.** Sunset/sunrise computed from configured lat/long drives `OFF ↔ AMBIENT`.
 * **Config is TOML** (`stdlib tomllib`): a program config plus an assets manifest.
 * **Fully offline in the field.** No network dependency at runtime. Deploys happen by visiting the Pi (rsync over direct link/hotspot). Because the sunset schedule depends on wall-clock time, the production Pi should carry an RTC module (e.g. DS3231); `fake-hwclock` alone drifts across power-offs.

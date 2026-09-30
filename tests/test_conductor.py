@@ -95,3 +95,30 @@ def test_force_and_release(clock) -> None:
     assert c.state is State.OFF  # still day
     c.set_night(True)
     assert c.state is State.PRESENCE
+
+
+def test_show_delays_change_live_and_remeasure_a_running_countdown(clock) -> None:
+    import pytest
+
+    c, _ = make(clock)
+    assert c.show_delays_s == (10, 20)
+    c.set_night(True)
+    c.set_occupied(True)
+    clock.advance(4)
+    c.set_show_delays(30, 40)  # a longer first wait: measured from when presence began, not from now
+    assert c.state is State.PRESENCE and c.time_to_show() == 26
+    c.set_show_delays(3, 40)  # shorter than the time already waited: the show comes at once
+    assert c.state is State.SHOW
+    c.track_finished()
+    assert c.state is State.PRESENCE and c.time_to_show() == 40  # the repeat delay, as now set
+    clock.advance(5)
+    c.set_show_delays(3, 50)
+    assert c.time_to_show() == 45  # the repeat delay is the one re-measured after a show
+    c.set_occupied(False)
+    assert c.state is State.AMBIENT
+    c.set_show_delays(7, 8)  # no countdown running: nothing to re-measure
+    assert c.time_to_show() is None
+    c.set_occupied(True)
+    assert c.time_to_show() == 7
+    with pytest.raises(ValueError):
+        c.set_show_delays(0, 8)
