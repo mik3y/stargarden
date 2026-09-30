@@ -223,6 +223,105 @@ def test_starfield_is_mostly_dark_with_stars_flaring_out() -> None:
     assert any(theme.stars(cells[0], 0.1 * k) != theme.stars(cells[1], 0.1 * k) for k in range(100))  # stars are cells, not columns
 
 
+def bar_cells(n: int = 16) -> list[Spot]:
+    """Four bars' colour cells: 16 columns round the ring, two rows each."""
+    return [Spot(r // 4, 4, r % 4, 4, row, 2, ring=r, ring_count=n) for r in range(n) for row in range(2)]
+
+
+def test_embers_one_or_two_coals_in_total_dark() -> None:
+    from stargarden.lighting.themes import EmberTheme
+
+    theme = get_theme("embers")
+    assert isinstance(theme, EmberTheme) and theme.tempo_bpm is None and not theme.snaps
+    cells = bar_cells()
+    counts, dark = [], 0
+    for k in range(3600):
+        t = 0.05 * k
+        levels = [theme.intensity(c, t) for c in cells]
+        counts.append(sum(lv > 0.3 for lv in levels))
+        dark += max(levels) < 0.01
+        for c, lv in zip(cells, levels, strict=True):
+            r, g, b = theme.color(c, t)
+            assert r >= g >= b and b <= 0.1  # always warm
+            if lv > 0.85:
+                assert g > 0.35  # amber at full, not red
+    assert max(counts) <= 4 and sum(counts) / len(counts) < 2.0  # a coal or two, with the odd row-mate
+    assert dark > 0.1 * 3600  # and often nothing at all
+    assert theme.intensity(cells[0], 1e-9) == 0.0  # the dark is total, no glow floor
+
+
+def test_slow_rain_falls_then_splashes_a_beat_later() -> None:
+    from stargarden.lighting.themes import RainTheme, _noise
+
+    theme = get_theme("slow-rain")
+    assert isinstance(theme, RainTheme) and theme.tempo_bpm == 120.0
+    cells = bar_cells()
+    drops, dry = 0, 0
+    for k in range(2000):
+        if _noise(k // theme.phrase_beats, 11) < theme.dry_chance:
+            dry += 1
+            if k % theme.phrase_beats >= 2:  # a dry phrase: nothing but the floor, once the last splash has faded
+                for c in cells:
+                    assert theme.intensity(c, (k + 0.5) * theme.beat_s) <= theme.floor_level + 1e-9
+            continue
+        for r in range(16):
+            if _noise(r, k, 12) >= theme.chance:
+                continue
+            top, bottom = cells[2 * r], cells[2 * r + 1]
+            start = (k + 0.9 * _noise(r, k, 13)) * theme.beat_s
+            if all(_noise(r, k - d, 12) >= theme.chance for d in (1, 2)):  # unless a drop just before is still falling or splashing here
+                assert theme.intensity(top, start + theme.attack_s) == pytest.approx(theme.floor_level + theme.fall_level, abs=1e-6)
+                assert theme.intensity(bottom, start + theme.attack_s) < 0.3  # the splash is not yet
+            assert theme.intensity(bottom, start + theme.beat_s + theme.attack_s) == pytest.approx(1.0, abs=1e-6)
+            rr, g, b = theme.color(bottom, start + theme.beat_s + theme.attack_s)
+            assert b >= g >= rr > 0.4  # blue-white
+            drops += 1
+    assert 500 < drops < 1400 and 100 < dry < 700  # about one drop every two beats across the ring, with dry spells
+
+
+def test_breath_rises_together_and_one_column_lingers() -> None:
+    from stargarden.lighting.themes import BreathTheme, _noise
+
+    theme = get_theme("breath")
+    assert isinstance(theme, BreathTheme) and theme.tempo_bpm is None and not theme.snaps
+    ring = bar_cells()[::2]
+    top = theme.cycle_s * theme.inhale
+    at_top = [theme.intensity(s, top) for s in ring]
+    assert min(at_top) > 0.9 * theme.peak_level and max(at_top) <= theme.peak_level  # the whole ring, near enough together
+    held = int(_noise(0, 21) * 16)  # the first cycle's column
+    late = theme.cycle_s * 0.97
+    levels = [theme.intensity(s, late) for s in ring]
+    assert levels[held] == max(levels) and levels[held] > 2 * sorted(levels)[-2]  # still letting go while the rest are at the trough
+    assert min(levels) < theme.trough_level + 0.02
+    for s in ring:
+        for k in range(300):
+            r, g, b = theme.color(s, 0.1 * k)
+            assert r == 0.0 and g > 0.0 and b > 0.0  # on the teal line, never black
+            assert theme.intensity(s, 0.1 * k) <= theme.peak_level + 1e-9
+
+
+def test_moths_wander_to_neighboring_columns_a_few_at_a_time() -> None:
+    from stargarden.lighting.themes import MothTheme, _moth_at
+
+    theme = get_theme("moths")
+    assert isinstance(theme, MothTheme) and theme.tempo_bpm == 120.0
+    cells = bar_cells()
+    counts = []
+    for k in range(2400):
+        t = 0.05 * k
+        levels = [theme.intensity(c, t) for c in cells]
+        counts.append(sum(lv > 0.5 for lv in levels))
+        assert max(levels) <= theme.brightness + 1e-9
+    assert max(counts) <= theme.count + 1 and sum(counts) / len(counts) < 3.0  # +1: a step in progress lights two cells
+    assert theme.color(cells[0], 1.0) == theme.moth
+    for m in range(theme.count):
+        path = [_moth_at(m, 2, b, 16, 2, theme.step_chance, theme.turn_chance) for b in range(theme.epoch_beats)]
+        for (r0, _), (r1, _) in zip(path, path[1:], strict=False):
+            assert (r1 - r0) % 16 in (0, 1, 15)  # sits still or steps to a neighbour
+        assert any(r0 != r1 for (r0, _), (r1, _) in zip(path, path[1:], strict=False))  # but does move
+    assert theme.intensity(cells[0], 0.0) == 0.0  # an epoch starts dark and fades in
+
+
 def test_spot_grid_and_ring_from_bar_cells(clock) -> None:
     cfg = make_cfg(fx("bar", "jolt_bar_fx2", "38ch", 1), fx("wash", "generic", "rgb", 40))
     engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("ember-waves"), random.Random(1), clock=clock)

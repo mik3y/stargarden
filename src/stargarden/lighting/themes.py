@@ -8,9 +8,11 @@ program, sends waves of amber and orange along the bars with every other
 column dark. TideTheme, the other ambient program, washes a broad green swell
 around the ring of columns and back. ChaseTheme, the show program, runs a
 column of light around the room one way, then the other, then breaks into an
-odd/even dance. StormTheme and SparkleTheme, the other show programs, leave most
-of the ring dark: a few violet islands with white flashes on the beat, and stars
-flaring out of a deep blue sky.
+odd/even dance. The other show programs leave most of the ring dark: StormTheme,
+a few violet islands with white flashes on the beat; SparkleTheme, stars flaring
+out of a deep blue sky; EmberTheme, one or two amber coals at a time; RainTheme,
+drops falling down the bars; BreathTheme, the whole ring breathing in a low
+teal; MothTheme, a few points of warm white wandering between columns.
 """
 
 import math
@@ -441,8 +443,256 @@ class SparkleTheme(Theme):
         return self.sample(spot, t)[1]
 
 
+@dataclass(frozen=True)
+class EmberTheme(Theme):
+    """Coals in the dark.
+
+    One or two cells at a time glow up over a couple of seconds in deep red,
+    warm to amber as they brighten, breathe once or twice, and fade out over
+    a little longer than they rose. Sometimes a coal's row-mate catches a
+    moment later, dimmer. Between coals the dark is total. Nothing here keeps
+    time: it reads as a fire that has burned down.
+    """
+
+    name: str
+    low: RGB = (0.6, 0.08, 0.0)  # a coal as it comes up
+    high: RGB = (1.0, 0.45, 0.05)  # at full
+    slot_s: float = 4.0  # a coal may start in each slot of this long
+    chance: float = 0.7  # that one does
+    life_s: float = 6.0  # rise to fade, varied per coal by up to ±30 %
+    rise_s: float = 1.5
+    fall_s: float = 2.5
+    breathe_depth: float = 0.12
+    breathe_s: float = 2.2
+    mate_chance: float = 0.25  # the cell above or below catches too
+    mate_delay_s: float = 0.6
+    mate_level: float = 0.55
+    brightness: float = 0.9
+
+    def glow(self, spot: Spot, t: float) -> float:
+        """The coal on this cell, 0..1: its own, or its row-mate's spill."""
+        slot = int(t // self.slot_s)
+        tail = int((self.life_s * 1.3 + self.mate_delay_s) // self.slot_s) + 1
+        level = 0.0
+        for k in range(slot - tail, slot + 1):
+            if _noise(k, 1) >= self.chance:
+                continue
+            ring, row = int(_noise(k, 2) * spot.ring_count), int(_noise(k, 3) * spot.rows)
+            if ring != spot.ring:
+                continue
+            life = self.life_s * (0.7 + 0.6 * _noise(k, 4))
+            start = (k + 0.7 * _noise(k, 5)) * self.slot_s
+            if row == spot.row:
+                level = max(level, self._envelope(t - start, life))
+            elif spot.rows > 1 and _noise(k, 6) < self.mate_chance:
+                level = max(level, self.mate_level * self._envelope(t - start - self.mate_delay_s, life))
+        return level
+
+    def _envelope(self, dt: float, life: float) -> float:
+        if dt <= 0.0 or dt >= life:
+            return 0.0
+        if dt < self.rise_s:
+            shape = _smoothstep(dt / self.rise_s)
+        elif dt > life - self.fall_s:
+            shape = _smoothstep((life - dt) / self.fall_s)
+        else:
+            shape = 1.0
+        breathe = 1.0 - self.breathe_depth * (0.5 + 0.5 * math.sin(2 * math.pi * dt / self.breathe_s))
+        return shape * breathe
+
+    def color(self, spot: Spot, t: float) -> RGB:
+        return mix(self.low, self.high, self.glow(spot, t))
+
+    def intensity(self, spot: Spot, t: float) -> float:
+        return self.brightness * self.glow(spot, t)
+
+
+@dataclass(frozen=True)
+class RainTheme(Theme):
+    """Drops falling down the bars.
+
+    A drop is a cell on the top row lighting for a moment, then the cell under
+    it a beat later, a touch brighter and slower to fade: the fall, then the
+    splash. Cool blue-white on a floor so faint it is almost black. Drops are
+    sparse, a few a beat across the whole ring, and every so often a whole
+    phrase passes with none. Written at 120 BPM: slower tracks mean slower rain.
+    """
+
+    name: str
+    tempo_bpm: float | None = 120.0
+    snaps: bool = True
+    drop: RGB = (0.55, 0.75, 1.0)
+    floor: RGB = (0.0, 0.03, 0.12)
+    floor_level: float = 0.015
+    beat_s: float = 0.5
+    chance: float = 0.035  # per column per beat
+    phrase_beats: int = 8
+    dry_chance: float = 0.2  # a phrase with no rain at all
+    attack_s: float = 0.05
+    fall_decay_s: float = 0.35  # the top cell
+    splash_decay_s: float = 0.6  # the bottom cell
+    splash_level: float = 1.0
+    fall_level: float = 0.75
+
+    def drops(self, spot: Spot, t: float) -> float:
+        beat = int(t // self.beat_s)
+        tail = int((self.beat_s + self.attack_s + self.splash_decay_s) // self.beat_s) + 1
+        level = 0.0
+        for k in range(beat - tail, beat + 1):
+            if _noise(k // self.phrase_beats, 11) < self.dry_chance or _noise(spot.ring, k, 12) >= self.chance:
+                continue
+            start = (k + 0.9 * _noise(spot.ring, k, 13)) * self.beat_s
+            if spot.row == 0:
+                level += self.fall_level * self._pulse(t - start, self.fall_decay_s)
+            elif spot.row == spot.rows - 1:
+                level += self.splash_level * self._pulse(t - start - self.beat_s, self.splash_decay_s)
+        return min(1.0, level)
+
+    def _pulse(self, dt: float, decay: float) -> float:
+        if dt < 0.0:
+            return 0.0
+        if dt < self.attack_s:
+            return dt / self.attack_s
+        return max(0.0, 1.0 - (dt - self.attack_s) / decay) ** 2
+
+    def color(self, spot: Spot, t: float) -> RGB:
+        return mix(self.floor, self.drop, self.drops(spot, t))
+
+    def intensity(self, spot: Spot, t: float) -> float:
+        return min(1.0, self.floor_level + self.drops(spot, t))
+
+
+@dataclass(frozen=True)
+class BreathTheme(Theme):
+    """The whole ring breathing, low and slow.
+
+    Every column rises together from near black to a low teal over the inhale,
+    and sinks back over the longer exhale, on a cycle of ten seconds or so, the
+    columns a hair apart so the ring moves like one body rather than one lamp.
+    On each exhale one column holds its light a while after the rest have let
+    go. As minimal as a program gets, for the quietest tracks.
+    """
+
+    name: str
+    trough: RGB = (0.0, 0.2, 0.25)
+    peak: RGB = (0.0, 0.6, 0.5)
+    trough_level: float = 0.01
+    peak_level: float = 0.2
+    cycle_s: float = 10.0
+    inhale: float = 0.4  # share of the cycle spent rising
+    spread: float = 0.03  # cycle offset from one column to the next round the ring, in all
+    hold_s: float = 3.0  # how much longer the held column's exhale takes
+
+    def breath(self, spot: Spot, t: float) -> float:
+        """0 at the trough, 1 at the top of the inhale, for this column."""
+        phase = t / self.cycle_s + self.spread * spot.ring / max(1, spot.ring_count)
+        cycle, u = int(phase // 1.0), phase % 1.0
+        level = self._curve(u, 1.0)
+        if int(_noise(cycle, 21) * spot.ring_count) == spot.ring:  # this cycle's held column
+            level = max(level, self._curve(u, (1.0 - self.inhale + self.hold_s / self.cycle_s) / (1.0 - self.inhale)))
+        if int(_noise(cycle - 1, 21) * spot.ring_count) == spot.ring:  # still letting go of the last one
+            level = max(level, self._curve(u + 1.0, (1.0 - self.inhale + self.hold_s / self.cycle_s) / (1.0 - self.inhale)))
+        return level
+
+    def _curve(self, u: float, stretch: float) -> float:
+        """A raised cosine up over the inhale, down over the exhale, the exhale `stretch` times longer."""
+        if u < self.inhale:
+            return 0.5 - 0.5 * math.cos(math.pi * u / self.inhale)
+        v = (u - self.inhale) / ((1.0 - self.inhale) * stretch)
+        return 0.5 + 0.5 * math.cos(math.pi * v) if v < 1.0 else 0.0
+
+    def color(self, spot: Spot, t: float) -> RGB:
+        return mix(self.trough, self.peak, self.breath(spot, t))
+
+    def intensity(self, spot: Spot, t: float) -> float:
+        return self.trough_level + (self.peak_level - self.trough_level) * self.breath(spot, t)
+
+
+@lru_cache(maxsize=4096)
+def _moth_at(moth: int, epoch: int, beat: int, ring_count: int, rows: int, step_chance: float, turn_chance: float) -> tuple[int, int]:
+    """Where moth `moth` sits (ring column, row) at beat `beat` of epoch `epoch`: a random walk
+    to a neighboring column on some beats, changing row on some of those; found by walking from
+    the epoch's start, each step cached."""
+    if beat <= 0:
+        return int(_noise(moth, epoch, 31) * ring_count), int(_noise(moth, epoch, 32) * rows)
+    ring, row = _moth_at(moth, epoch, beat - 1, ring_count, rows, step_chance, turn_chance)
+    if _noise(moth, epoch, beat, 33) < step_chance:
+        ring = (ring + (1 if _noise(moth, epoch, beat, 34) < 0.5 else -1)) % ring_count
+        if rows > 1 and _noise(moth, epoch, beat, 35) < turn_chance:
+            row = (row + 1) % rows
+    return ring, row
+
+
+@dataclass(frozen=True)
+class MothTheme(Theme):
+    """A few points of warm white wandering in the dark.
+
+    Up to three moths at once, each a single cell, each stepping to a
+    neighboring column on some beats and sitting still on the rest, sometimes
+    changing row, crossing from bar to bar as the ring allows. A moth lives for
+    an epoch of a couple of dozen beats, arriving and leaving on a slow fade;
+    on average two are about. Each step is a short cross-fade from the old
+    cell to the new. Everything else is black. Written at 120 BPM.
+    """
+
+    name: str
+    tempo_bpm: float | None = 120.0
+    snaps: bool = True
+    moth: RGB = (1.0, 0.8, 0.5)
+    count: int = 3
+    beat_s: float = 0.5
+    epoch_beats: int = 24
+    alive_chance: float = 0.7  # per moth per epoch
+    step_chance: float = 0.3  # per beat
+    turn_chance: float = 0.4  # a step that also changes row
+    step_fade_s: float = 0.4
+    arrive_s: float = 2.0  # fade in at the start of an epoch, out at its end
+    brightness: float = 0.8
+    spill: float = 0.1  # onto the cell above or below
+
+    def _cell_level(self, spot: Spot, ring: int, row: int) -> float:
+        if ring != spot.ring:
+            return 0.0
+        return 1.0 if row == spot.row else self.spill
+
+    def moths(self, spot: Spot, t: float) -> float:
+        epoch_s = self.epoch_beats * self.beat_s
+        epoch, tau = int(t // epoch_s), t % epoch_s
+        beat = int(tau // self.beat_s)
+        since_step = tau - beat * self.beat_s
+        presence = min(1.0, tau / self.arrive_s, (epoch_s - tau) / self.arrive_s)
+        level = 0.0
+        for m in range(self.count):
+            if _noise(m, epoch, 30) >= self.alive_chance:
+                continue
+            args = (m, epoch, spot.ring_count, spot.rows, self.step_chance, self.turn_chance)
+            here = self._cell_level(spot, *_moth_at(args[0], args[1], beat, *args[2:]))
+            if beat > 0 and since_step < self.step_fade_s:
+                before = self._cell_level(spot, *_moth_at(args[0], args[1], beat - 1, *args[2:]))
+                here = before + (here - before) * _smoothstep(since_step / self.step_fade_s)
+            level += here * presence
+        return min(1.0, level)
+
+    def color(self, spot: Spot, t: float) -> RGB:
+        return self.moth
+
+    def intensity(self, spot: Spot, t: float) -> float:
+        return self.brightness * self.moths(spot, t)
+
+
 AMBIENT_THEMES: dict[str, Theme] = {t.name: t for t in (WaveTheme("ember-waves"), TideTheme("green-tide"))}
-SHOW_THEMES: dict[str, Theme] = {t.name: t for t in (ChaseTheme("orbit"), StormTheme("violet-storm"), SparkleTheme("starfield"))}
+SHOW_THEMES: dict[str, Theme] = {
+    t.name: t
+    for t in (
+        ChaseTheme("orbit"),
+        StormTheme("violet-storm"),
+        SparkleTheme("starfield"),
+        EmberTheme("embers"),
+        RainTheme("slow-rain"),
+        BreathTheme("breath"),
+        MothTheme("moths"),
+    )
+}
 
 DRIFT_THEMES: dict[str, Theme] = {
     t.name: t
