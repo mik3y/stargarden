@@ -1,6 +1,8 @@
 # Stargarden
 
-Stargarden is a Python program that runs the sound and lighting program for "Stargarden", an art installation.
+Python program that runs the sound and lighting program for "Stargarden", an art installation.
+
+## Overview
 
 Stargarden is a secluded spot in a nighttime forest, featuring a comfy platform for lying down, looking up at the stars, and taking in the atmosphere.
 
@@ -9,6 +11,12 @@ As a visitor approaches Stargarden, they see trees encircling the platform which
 Unbeknownst to the visitor, upon their arrival, a bluetooth motion sensor has fired and determined that the space is occupied. After a set amount of time (e.g. 10 minutes), something happens: The lights fade off briefly, and a new sound takes over: a musical track from a privately curated playlist of chill, beautiful tunes. The lighting program gets slightly more active and matches the music.
 
 As the track ends, the "normal" program returns. So long as presence is detected in the space, the program repeats after another delay, with a new track.
+
+## Deployment Status
+
+Stargarden had its inaugural deployment in the woods of Laytonville, CA, at Camp Tasty in October 2026. It ran for 3 days based entirely on this program as of commit 66981a0.
+
+It is unknown whether and when Stargarden might return.
 
 ## Design
 
