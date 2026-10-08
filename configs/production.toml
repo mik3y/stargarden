@@ -87,6 +87,11 @@ role = "platform"
 name = "platform"
 address = "C0:2C:ED:43:73:40"
 
+[[presence.sensors]]
+role = "walkway"
+name = "walkway"
+address = "C0:2C:ED:29:56:45"
+
 [web]
 enabled = true
 host = "0.0.0.0"  # reachable from a laptop on the Pi's hotspot; there is no login, so keep that network private

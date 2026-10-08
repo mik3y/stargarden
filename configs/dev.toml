@@ -76,6 +76,11 @@ role = "platform"
 name = "platform"
 address = "3959F0F8-69B9-683D-98F6-D0112B50C4EE"
 
+[[presence.sensors]]
+role = "walkway"
+name = "walkway"
+address = "5DFA9345-E906-2AED-CB1F-6DED6A60EC99"
+
 [web]
 enabled = true  # http://127.0.0.1:7710/ once `bun run build` has been run in web/ (see README)
 port = 7710
