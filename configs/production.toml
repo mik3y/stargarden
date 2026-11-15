@@ -12,6 +12,7 @@ dusk_level = 0.35  # brightness at the purple end, relative to the orange end
 driver = "enttec_open"  # Enttec Open DMX USB; "enttec_pro" for a DMX USB Pro
 port = "auto"  # first FTDI widget; pin with /dev/serial/by-id/usb-ENTTEC_... if there are several
 fps = 30
+tempo_bpm = 100  # the dance patterns' pace; the console changes it live
 
 # Four ADJ Jolt Bar FX2 in 38CH mode (set on each bar's menu), 38 channels apiece,
 # addressed back to back from 1.
@@ -38,6 +39,16 @@ name = "bar-4"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 115
+
+# Two Chauvet DJ Pinspot Q1Z ILS on the mirror balls, optional. Set both to
+# personality 4CH and address 161, so the one patch entry drives the pair. With
+# none plugged in the entry does nothing.
+[[lighting.fixtures]]
+name = "pinspots"
+type = "pinspot_q1z"
+mode = "4ch"
+address = 161
+role = "spot"
 
 [web]
 enabled = true

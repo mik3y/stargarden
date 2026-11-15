@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .app import Stargarden
+from .config import FixtureRole
 from .lighting.color import RGB
 from .sunset import color_at, level_at
 
@@ -108,8 +109,14 @@ class Status:
     peak: float
     dusk_level: float
     palette: list[tuple[int, int, int]]  # the sunset end to end, as it looks at the current dusk level
+    program: str  # what the bars show, the sunset or a dance pattern
+    programs: list[str]
+    tempo: float  # the dance patterns' pace, bpm
+    spots: bool  # pin spots are patched
+    spot_level: float
+    spot_color: str  # "white" | "match"
     debug: bool
-    check: bool  # the setup check is walking the bars
+    check: bool  # the setup check is walking the fixtures
 
 
 @dataclass(frozen=True)
@@ -168,16 +175,22 @@ class Console:
             peak=p.lighting.peak,
             dusk_level=sunset.dusk_level,
             palette=[swatch_rgb(color_at(u), level_at(u, sunset.dusk_level), 1.0) for u in steps],
+            program=p.lighting.program.name,
+            programs=list(p.programs),
+            tempo=p.lighting.tempo,
+            spots=p.has_spots,
+            spot_level=p.lighting.spot_level,
+            spot_color=p.lighting.spot_color.value,
             debug=debug_enabled(),
             check=p.check.running,
         )
 
     def fixtures(self) -> list[FixturePreview]:
         p = self.program
-        peak = p.lighting.peak
         previews = []
         for fixture, frame in zip(p.patch.fixtures, p.lighting.last_frames, strict=True):
             mode = fixture.mode
+            peak = p.lighting.peak if fixture.role is FixtureRole.BAR else 1.0
             ys = sorted({c.position[1] for c in mode.color_cells})
             rows = []
             for y in ys:
@@ -263,8 +276,32 @@ class Console:
         return self.program.set_dusk_level(_number(value, "value"))
 
     @action
+    def set_program(self, name: str) -> str:
+        """Show the sunset or a dance pattern, by name."""
+        if not isinstance(name, str):
+            raise ValueError("name must be a program name")
+        return self.program.set_program(name)
+
+    @action
+    def set_tempo(self, bpm: float) -> float:
+        """Set the dance patterns' pace."""
+        return self.program.set_tempo(_number(bpm, "bpm"))
+
+    @action
+    def set_spot_level(self, value: float) -> float:
+        """Set the pin spots' brightness (0..1)."""
+        return self.program.set_spot_level(_number(value, "value"))
+
+    @action
+    def set_spot_color(self, color: str) -> str:
+        """Make the pin spots "white", or "match" them to the running program."""
+        if not isinstance(color, str):
+            raise ValueError("color must be white or match")
+        return self.program.set_spot_color(color)
+
+    @action
     def set_check(self, on: bool) -> bool:
-        """Run the setup check (red/green/blue/white on each bar in turn), or stop it."""
+        """Run the setup check (red/green/blue/white on each fixture in turn), or stop it."""
         if not isinstance(on, bool):
             raise ValueError("on must be true or false")
         if on:
@@ -280,7 +317,7 @@ class Console:
 
     @action
     def reset_defaults(self) -> None:
-        """Length, dusk level and peak back to the config file's values, with the sunset running."""
+        """Every setting back to the config file's value, with the sunset showing and running."""
         self.program.reset_overrides()
 
     @action

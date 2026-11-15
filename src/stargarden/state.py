@@ -1,5 +1,6 @@
 """Console settings that outlive a run: the lighting peak, the sunset's length
-and dusk level, and the place it is held at.
+and dusk level, the place it is held at, the program showing, the patterns'
+tempo, and the pin spots' level and color.
 
 The config file is the committed, deployed source of defaults; this is the
 layer of overrides made from the console, kept in a small JSON file outside the
@@ -17,6 +18,8 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+NAMES = ("program", "spot_color")  # the overrides that are names; the rest are numbers
+
 
 @dataclass
 class Overrides:
@@ -24,8 +27,12 @@ class Overrides:
     leg_s: float | None = None
     dusk_level: float | None = None
     hold: float | None = None  # the place the sunset is held at, 0..1; None while it runs
+    tempo: float | None = None
+    spot_level: float | None = None
+    program: str | None = None  # a dance pattern's name; None for the sunset
+    spot_color: str | None = None
 
-    def to_json(self) -> dict[str, float]:
+    def to_json(self) -> dict[str, float | str]:
         """The overrides that are set."""
         return {name: value for name, value in asdict(self).items() if value is not None}
 
@@ -39,9 +46,14 @@ class Overrides:
             value = data.get(f.name)
             if value is None:
                 continue
-            if isinstance(value, bool) or not isinstance(value, int | float):
+            if f.name in NAMES:
+                if not isinstance(value, str):
+                    raise ValueError(f"{f.name}: expected a name")
+                values[f.name] = value
+            elif isinstance(value, bool) or not isinstance(value, int | float):
                 raise ValueError(f"{f.name}: expected a number")
-            values[f.name] = float(value)
+            else:
+                values[f.name] = float(value)
         return cls(**values)
 
 

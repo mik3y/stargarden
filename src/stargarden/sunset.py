@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 from .config import MAX_LEG_S, MIN_DUSK_LEVEL, MIN_LEG_S
 from .lighting.color import RGB, clamp01, mix
+from .lighting.engine import Spot
 
 STOPS: tuple[tuple[float, RGB], ...] = (
     (0.00, (1.0, 0.42, 0.02)),  # amber
@@ -40,6 +41,8 @@ def level_at(position: float, dusk_level: float) -> float:
 
 
 class Sunset:
+    name = "sunset"
+
     def __init__(self, leg_s: float = 900.0, dusk_level: float = 0.35, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
         self.leg_s = leg_s
@@ -129,3 +132,11 @@ class Sunset:
         """The color and brightness to show now."""
         position = self.shown()
         return color_at(position), level_at(position, self.dusk_level)
+
+    def cell(self, spot: Spot, beat: float) -> tuple[RGB, float]:
+        """The sunset as a lighting program, the same on every cell."""
+        return self.look()
+
+    def accent(self, beat: float) -> RGB:
+        """The sunset's color now, for the pin spots."""
+        return color_at(self.shown())

@@ -2,6 +2,7 @@
 // in src/stargarden/console.py: a new field there is a new field here.
 
 export type Direction = "darkening" | "brightening";
+export type SpotColor = "white" | "match";
 
 /** `console.Status`: everything the panels show. */
 export interface Status {
@@ -25,8 +26,17 @@ export interface Status {
   dusk_level: number;
   /** The sunset end to end, evenly spaced, at the current dusk level. */
   palette: [number, number, number][];
+  /** What the bars show: "sunset" or a dance pattern. */
+  program: string;
+  programs: string[];
+  /** The dance patterns' pace, bpm. */
+  tempo: number;
+  /** Pin spots are patched. */
+  spots: boolean;
+  spot_level: number;
+  spot_color: SpotColor;
   debug: boolean;
-  /** The setup check is walking the bars. */
+  /** The setup check is walking the fixtures. */
   check: boolean;
 }
 

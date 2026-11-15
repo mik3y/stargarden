@@ -7,15 +7,17 @@ import time
 from collections.abc import Callable, Coroutine, Iterable
 
 from .check import SetupCheck
-from .config import Config
+from .config import Config, FixtureRole, SpotColor
 from .lighting import LightingEngine, Patch
 from .lighting.drivers import make_driver
+from .lighting.engine import Program
+from .patterns import PATTERNS
 from .state import Overrides, StateStore
 from .sunset import Sunset
 
 log = logging.getLogger(__name__)
 
-FADE_S = 3.0  # lights on and off
+FADE_S = 3.0  # lights on and off, and from one program to another
 
 
 class Stargarden:
@@ -27,7 +29,9 @@ class Stargarden:
         self.overrides: Overrides = self.store.load()
         self.sunset = Sunset(config.sunset.leg_s, config.sunset.dusk_level, clock)
         self.patch = Patch.from_config(config.lighting)
-        self.lighting = LightingEngine(self.patch, make_driver(config.lighting), config.lighting, self.sunset.look, clock)
+        self.programs: dict[str, Program] = {self.sunset.name: self.sunset, **PATTERNS}
+        self.has_spots = any(f.role is FixtureRole.SPOT for f in self.patch.fixtures)
+        self.lighting = LightingEngine(self.patch, make_driver(config.lighting), config.lighting, self.sunset, clock)
         self.check = SetupCheck(self.lighting, self.patch)
         self.on = True
         self._save_handle: asyncio.TimerHandle | None = None
@@ -43,11 +47,19 @@ class Stargarden:
                 self.sunset.set_leg(o.leg_s)
             if o.dusk_level is not None:
                 self.sunset.set_dusk_level(o.dusk_level)
-        except ValueError as e:
+            if o.tempo is not None:
+                self.lighting.set_tempo(o.tempo)
+            if o.spot_color is not None:
+                self.lighting.spot_color = SpotColor(o.spot_color)
+            if o.program is not None:
+                self.lighting.set_program(self.programs[o.program])
+        except (ValueError, KeyError) as e:
             log.warning("state: ignoring %s: %s", self.store.path, e)
             self.overrides = o = Overrides()
         if o.peak is not None:
             self.lighting.set_peak(o.peak)
+        if o.spot_level is not None:
+            self.lighting.set_spot_level(o.spot_level)
         if o.hold is not None:
             self.sunset.seek(o.hold)
         self.sunset.snap()
@@ -128,9 +140,44 @@ class Stargarden:
         self._touch_state()
         return self.lighting.peak
 
+    def set_program(self, name: str) -> str:
+        """Crossfade to the sunset or a dance pattern; the sunset keeps running underneath a pattern."""
+        if name not in self.programs:
+            raise ValueError(f"unknown program {name!r}; have {list(self.programs)}")
+        self.lighting.set_program(self.programs[name], FADE_S)
+        self.overrides.program = None if name == self.sunset.name else name
+        self._touch_state()
+        return name
+
+    def set_tempo(self, bpm: float) -> float:
+        """Change the dance patterns' pace; a value equal to the config's drops the override."""
+        self.lighting.set_tempo(bpm)
+        self.overrides.tempo = None if self.lighting.tempo == self.config.lighting.tempo_bpm else self.lighting.tempo
+        self._touch_state()
+        return self.lighting.tempo
+
+    def set_spot_level(self, level: float) -> float:
+        """Change the pin spots' brightness."""
+        self.lighting.set_spot_level(level)
+        self.overrides.spot_level = self.lighting.spot_level
+        self._touch_state()
+        return self.lighting.spot_level
+
+    def set_spot_color(self, color: str) -> str:
+        """Make the pin spots white, or the running program's color."""
+        self.lighting.spot_color = SpotColor(color)
+        self.overrides.spot_color = None if self.lighting.spot_color is self.config.lighting.spot_color else color
+        log.info("spots: %s", color)
+        self._touch_state()
+        return color
+
     def reset_overrides(self) -> None:
-        """Back to the config file's length, dusk level and peak, with the sunset running."""
+        """Back to the config file's settings, with the sunset showing and running."""
         self.overrides = Overrides()
+        self.lighting.set_program(self.sunset, FADE_S)
+        self.lighting.set_tempo(self.config.lighting.tempo_bpm)
+        self.lighting.set_spot_level(self.config.lighting.spot_level)
+        self.lighting.spot_color = self.config.lighting.spot_color
         self.sunset.set_leg(self.config.sunset.leg_s)
         self.sunset.set_dusk_level(self.config.sunset.dusk_level)
         self.sunset.resume()

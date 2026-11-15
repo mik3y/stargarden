@@ -1,9 +1,10 @@
 import pytest
 
-from stargarden.config import ConfigError, FixtureConfig, LightingConfig, ProfileConfig
+from stargarden.config import ConfigError, FixtureConfig, FixtureRole, LightingConfig, ProfileConfig, SpotColor
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
 from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
+from stargarden.patterns import PATTERNS
 from stargarden.sunset import Sunset
 
 
@@ -116,15 +117,33 @@ def test_jolt_bar_fx2_zoned_modes() -> None:
     assert out[30:32] == bytes([191, 255]) and out[32:35] == bytes([0, 0, 0])
 
 
-def bars() -> LightingConfig:
-    return make_cfg(*(fx(f"bar-{k + 1}", "jolt_bar_fx2", "38ch", 1 + 38 * k) for k in range(4)), peak=0.5)
+def bars(**kw) -> LightingConfig:
+    """The event rig: four bars and the pair of pin spots on one address."""
+    spots = FixtureConfig(name="pinspots", type="pinspot_q1z", address=161, mode="4ch", role=FixtureRole.SPOT)
+    return make_cfg(*(fx(f"bar-{k + 1}", "jolt_bar_fx2", "38ch", 1 + 38 * k) for k in range(4)), spots, **kw)
 
 
-def test_engine_shows_one_look_on_every_bar(clock) -> None:
-    cfg = bars()
+def test_pinspot_q1z_personalities() -> None:
+    modes = BUILTIN_TYPES["pinspot_q1z"].modes
+    assert {name: mode.footprint for name, mode in modes.items()} == {"4ch": 4, "6ch": 6, "7ch": 7}
+    patch = Patch.from_config(
+        make_cfg(fx("a", "pinspot_q1z", "4ch", 1), fx("b", "pinspot_q1z", "6ch", 10), fx("c", "pinspot_q1z", "7ch", 20))
+    )
+    white, pink = cell((1.0, 1.0, 1.0), 0.5), cell((1.0, 0.0, 0.5), 0.5)
+    out = patch.render([white, white, white])
+    assert out[0:4] == bytes([0, 0, 0, 128])  # 4CH: white is the white LED alone, dimmed in its own channel
+    assert out[9:15] == bytes([0, 0, 0, 255, 128, 0])  # 6CH: R G B W, dimmer, strobe off
+    assert out[19:26] == bytes([0, 128, 0, 0, 0, 0, 255])  # 7CH: no program, dimmer, strobe off, R G B W
+    out = patch.render([pink, pink, cell((1.0, 0.0, 0.5), 1.0, strobe=1.0)])
+    assert out[0:4] == bytes([128, 0, 64, 0]) and out[9:15] == bytes([255, 0, 128, 0, 128, 0])
+    assert out[19:26] == bytes([0, 255, 254, 255, 0, 128, 0])  # the strobe channel's fast end
+
+
+def test_engine_shows_one_sunset_on_every_bar(clock) -> None:
+    cfg = bars(peak=0.5)
     patch = Patch.from_config(cfg)
     sunset = Sunset(leg_s=100.0, dusk_level=0.4, clock=clock)
-    engine = LightingEngine(patch, ConsoleDriver(), cfg, sunset.look, clock=clock)
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, sunset, clock=clock)
     assert all(s.intensity == 0.0 for s in engine.frame(clock())[0].values())  # master starts dark
     engine.fade_master(1.0, 10.0)
     clock.advance(5)
@@ -133,7 +152,7 @@ def test_engine_shows_one_look_on_every_bar(clock) -> None:
     frames = engine.frame(clock())
     color, level = sunset.look()
     assert sunset.position == pytest.approx(0.5) and level == pytest.approx(0.7)
-    for frame in frames:
+    for frame in frames[:4]:
         assert all(frame[f"rgb{i}"].color == color and frame[f"rgb{i}"].intensity == pytest.approx(level * 0.5) for i in range(1, 9))
         assert all(frame[f"w{j}"].intensity == 0.0 for j in range(1, 5))  # no white in a sunset
     universe = patch.render(frames)
@@ -143,3 +162,55 @@ def test_engine_shows_one_look_on_every_bar(clock) -> None:
     assert engine.frame(clock())[0]["rgb1"].intensity == pytest.approx(level)
     engine.fade_master(0.0, 0.0)
     assert engine.frame(clock())[0]["rgb1"].intensity == 0.0
+
+
+def test_pin_spots_hold_their_own_level_and_color(clock) -> None:
+    cfg = bars(peak=0.2)
+    patch = Patch.from_config(cfg)
+    sunset = Sunset(leg_s=100.0, clock=clock)
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, sunset, clock=clock)
+    engine.fade_master(1.0, 0.0)
+    clock.advance(50)
+    spot = engine.frame(clock())[4]["cell"]
+    assert (spot.color, spot.intensity) == ((1.0, 1.0, 1.0), 1.0)  # white at full, whatever the bars' peak
+    assert patch.render(engine.last_frames)[160:164] == bytes([0, 0, 0, 255])
+    engine.set_spot_level(0.5)
+    engine.spot_color = SpotColor.MATCH
+    spot = engine.frame(clock())[4]["cell"]
+    assert spot.color == sunset.look()[0] and spot.intensity == 0.5  # the sunset's color, not its dimming
+    engine.fade_master(0.0, 0.0)
+    assert engine.frame(clock())[4]["cell"].intensity == 0.0  # off with the rest
+
+
+def test_programs_crossfade_and_the_tempo_never_jumps_a_pattern(clock) -> None:
+    cfg = bars()
+    patch = Patch.from_config(cfg)
+    sunset = Sunset(leg_s=100.0, clock=clock)
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, sunset, clock=clock)
+    engine.fade_master(1.0, 0.0)
+    engine.spot_color = SpotColor.MATCH
+    before = engine.frame(clock())
+    engine.set_program(PATTERNS["chase"], fade_s=4.0)
+    clock.advance(0.05)
+    after = engine.frame(clock())
+    for was, now in zip(before, after, strict=True):
+        for name in was:
+            a, b = was[name], now[name]
+            lit = [abs(x * a.intensity - y * b.intensity) for x, y in zip(a.color, b.color, strict=True)]
+            assert max(lit) < 0.05, name  # a crossfade, not a cut, on the bars and the spots alike
+    clock.advance(5)
+    frames = engine.frame(clock())
+    assert engine._prev_program is None
+    assert len({(s.color, round(s.intensity, 3)) for s in frames[0].values()}) > 2  # the bar is in blocks now
+    assert frames[4]["cell"].color == PATTERNS["chase"].accent(engine.beat(clock()))
+
+    assert engine.tempo == 100.0
+    clock.advance(60)
+    assert engine.beat(clock()) == pytest.approx(65.05 * 100 / 60)
+    beat = engine.beat(clock())
+    engine.set_tempo(160.0)
+    assert engine.beat(clock()) == beat  # the pattern stays where it was
+    clock.advance(3)
+    assert engine.beat(clock()) == pytest.approx(beat + 8)
+    with pytest.raises(ValueError):
+        engine.set_tempo(500)

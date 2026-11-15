@@ -199,7 +199,7 @@ def test_open_dmx_reopens_after_serial_error(fake_serial: type[FakeSerial], monk
 @pytest.mark.asyncio
 async def test_engine_shutdown_leaves_the_wire_dark(fake_serial: type[FakeSerial]) -> None:
     cfg = LightingConfig(driver="enttec_open", fixtures=(FixtureConfig("bar", "jolt_bar_fx2", 1, "38ch"),))
-    engine = LightingEngine(Patch.from_config(cfg), EnttecOpenDriver("/dev/ttyUSB9"), cfg, Sunset().look)
+    engine = LightingEngine(Patch.from_config(cfg), EnttecOpenDriver("/dev/ttyUSB9"), cfg, Sunset())
     engine.fade_master(1.0, 0.0)
     task = asyncio.get_running_loop().create_task(engine.run())
     await asyncio.sleep(0.2)

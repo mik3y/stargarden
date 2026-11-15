@@ -1,11 +1,11 @@
-"""The setup check: bar by bar, dim red, green, blue, white across its columns
-left to right, a second each, round and round.
+"""The setup check: fixture by fixture, dim red, green, blue, white across its
+columns left to right, a second each, round and round.
 
-For wiring up the site: it shows which DMX address lights which bar, which way
-round the bar hangs (red is its left end), and that its white cells answer. Bar
-N is the Nth fixture in the patch. The colors are an overlay that darkens
-everything else and is exempt from the master fade, so they show at once
-whether the lights are on or off.
+For wiring up the site: it shows which DMX address lights which fixture, which
+way round a bar hangs (red is its left end), and that its white cells answer.
+Fixture N is the Nth in the patch. A pin spot has one column, so it shows red.
+The colors are an overlay that darkens everything else and is exempt from the
+master fade, so they show at once whether the lights are on or off.
 """
 
 import asyncio
@@ -76,7 +76,7 @@ class SetupCheck:
         self._overlay = CheckOverlay(self._patch)
         self._lighting.add_overlay(self._overlay)
         self._task = asyncio.get_running_loop().create_task(self._run(self._overlay))
-        log.info("check: on; red/green/blue/white left to right on each bar in turn")
+        log.info("check: on; red/green/blue/white left to right on each fixture in turn")
 
     def stop(self) -> None:
         if not self.running:
@@ -91,7 +91,7 @@ class SetupCheck:
         while True:
             for k, fixture in enumerate(self._patch.fixtures):
                 self.bar = k
-                log.info("check: bar %d: %s", k + 1, fixture.name)
+                log.info("check: fixture %d: %s", k + 1, fixture.name)
                 overlay.fixture = k
                 await asyncio.sleep(STEP_S)
             if not self._patch.fixtures:

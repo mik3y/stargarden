@@ -14,7 +14,7 @@ single lit cell still reaches full output.
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from ..config import ConfigError, FixtureConfig, LightingConfig
+from ..config import ConfigError, FixtureConfig, FixtureRole, LightingConfig
 from .color import BLACK, RGB, clamp01, rgb_to_rgbw
 
 UNIVERSE_SIZE = 512
@@ -382,7 +382,31 @@ def _jolt_bar_fx2() -> FixtureType:
     return FixtureType("jolt_bar_fx2", modes)
 
 
-BUILTIN_TYPES: dict[str, FixtureType] = {t.name: t for t in (GENERIC, _jolt_bar_fx2())}
+def _pinspot_q1z() -> FixtureType:
+    """Chauvet DJ Pinspot Q1Z ILS, its three DMX personalities (user manual rev. 2).
+
+    One RGBW emitter. 4CH is the four colors alone. 6CH adds a dimmer and a
+    strobe after them. 7CH puts an automatic-program channel (parked at 0), the
+    dimmer and the strobe first. Select the personality on the fixture's menu.
+    """
+
+    def rgbw(b: ModeBuilder) -> ModeBuilder:
+        for attr in (*RGB_ATTRIBUTES, Attribute.COLOR_ADD_W):
+            b.add(attr, CELL, name=attr.removeprefix("ColorAdd_"))
+        return b
+
+    def strobe(b: ModeBuilder, first: int) -> ModeBuilder:
+        functions = (ChannelFunction(OPEN, 0, first - 1), ChannelFunction(STROBE, first, 254))
+        return b.add(Attribute.SHUTTER1, functions=functions, name="Strobe")
+
+    cells = (Cell(CELL, CellKind.COLOR),)
+    four = rgbw(ModeBuilder())
+    six = strobe(rgbw(ModeBuilder()).add(Attribute.DIMMER, name="Dimmer"), 16)
+    seven = rgbw(strobe(ModeBuilder().skip("Program").add(Attribute.DIMMER, name="Dimmer"), 10))
+    return FixtureType("pinspot_q1z", {f"{n}ch": b.build(f"{n}ch", cells) for n, b in ((4, four), (6, six), (7, seven))})
+
+
+BUILTIN_TYPES: dict[str, FixtureType] = {t.name: t for t in (GENERIC, _jolt_bar_fx2(), _pinspot_q1z())}
 
 
 # -- patch and rendering ----------------------------------------------------------
@@ -395,6 +419,7 @@ class Fixture:
     mode: DMXMode
     address: int  # 1-based DMX start address
     position: tuple[float, float] = (0.0, 0.0)
+    role: FixtureRole = FixtureRole.BAR
 
 
 @dataclass
@@ -425,7 +450,7 @@ class Patch:
         if fc.type not in types:
             raise ConfigError(f"fixture {fc.name!r}: unknown fixture type {fc.type!r}")
         fixture_type = types[fc.type]
-        return Fixture(fc.name, fixture_type, fixture_type.mode(fc.mode), fc.address, fc.position)
+        return Fixture(fc.name, fixture_type, fixture_type.mode(fc.mode), fc.address, fc.position, fc.role)
 
     def __len__(self) -> int:
         return len(self.fixtures)

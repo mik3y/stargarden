@@ -60,6 +60,40 @@ def test_changes_persist_and_apply_on_the_next_launch(config: Config, clock) -> 
     assert (program.sunset.leg_s, program.sunset.dusk_level, program.lighting.peak) == (100.0, 0.4, 1.0)
 
 
+def test_program_tempo_and_spots_persist(config: Config, clock) -> None:
+    program = Stargarden(config, clock)
+    console = Console(program, install_log_buffer("INFO"))
+    status = console.status()
+    assert status.program == "sunset" and status.programs == ["sunset", "blocks", "chase", "checker", "pulse"]
+    assert (status.tempo, status.spots, status.spot_level, status.spot_color) == (100.0, False, 1.0, "white")
+    assert console.act("set_program", {"name": "checker"}) == "checker" and console.status().program == "checker"
+    assert console.act("set_tempo", {"bpm": 120}) == 120.0
+    assert console.act("set_spot_level", {"value": 0.4}) == 0.4
+    assert console.act("set_spot_color", {"color": "match"}) == "match"
+    saved = json.loads(config.state.path.read_text())
+    assert saved == {"tempo": 120.0, "spot_level": 0.4, "program": "checker", "spot_color": "match"}
+
+    again = Console(Stargarden(config, clock), install_log_buffer("INFO")).status()
+    assert (again.program, again.tempo, again.spot_level, again.spot_color) == ("checker", 120.0, 0.4, "match")
+
+    for action, params in (("set_program", {"name": "disco"}), ("set_tempo", {"bpm": 5}), ("set_spot_color", {"color": "green"})):
+        with pytest.raises(ActionError, match=action):
+            console.act(action, params)
+    console.act("set_program", {"name": "sunset"})
+    assert "program" not in json.loads(config.state.path.read_text())
+    console.act("set_program", {"name": "pulse"})
+    console.act("reset_defaults")
+    status = console.status()
+    assert (status.program, status.tempo, status.spot_level, status.spot_color) == ("sunset", 100.0, 1.0, "white")
+    assert not config.state.path.exists()
+
+
+def test_a_saved_program_since_removed_is_dropped(config: Config, clock) -> None:
+    config.state.path.write_text(json.dumps({"program": "lasers", "peak": 0.5}))
+    program = Stargarden(config, clock)
+    assert program.lighting.program is program.sunset and program.lighting.peak == 1.0
+
+
 def test_a_saved_setting_that_no_longer_fits_is_dropped(config: Config, clock) -> None:
     config.state.path.write_text(json.dumps({"leg_s": 1, "peak": 0.5}))
     program = Stargarden(config, clock)

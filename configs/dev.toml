@@ -12,6 +12,7 @@ dusk_level = 0.35
 driver = "enttec_open"  # "console" for no hardware at all
 port = "auto"  # or pin it, e.g. "/dev/cu.usbserial-B000E5T5"
 fps = 30
+tempo_bpm = 100  # the dance patterns' pace; the console changes it live
 peak = 0.8
 
 # Four ADJ Jolt Bar FX2 in 38CH mode (set on each bar's menu), 38 channels apiece,
@@ -39,6 +40,16 @@ name = "bar-4"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 115
+
+# Two Chauvet DJ Pinspot Q1Z ILS on the mirror balls, optional. Set both to
+# personality 4CH and address 161, so the one patch entry drives the pair. With
+# none plugged in the entry does nothing.
+[[lighting.fixtures]]
+name = "pinspots"
+type = "pinspot_q1z"
+mode = "4ch"
+address = 161
+role = "spot"
 
 [web]
 enabled = true  # http://127.0.0.1:7710/ once `bun run build` has been run in web/ (see README)

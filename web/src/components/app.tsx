@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import FixturesCard from "@/components/fixtures-card";
 import LogPane from "@/components/log-pane";
+import ProgramCard from "@/components/program-card";
 import SettingsCard from "@/components/settings-card";
 import SunsetCard from "@/components/sunset-card";
 import { type Act, act } from "@/lib/api";
@@ -18,7 +19,8 @@ import { useConsole } from "@/lib/hooks";
 
 /**
  * The console on one page, sized for a phone: the sunset and its controls,
- * the bars as the program is driving them, the settings, the log. One stream
+ * the choice of program and the pin spots, the fixtures as the program is
+ * driving them, the settings, the log. One stream
  * feeds it and named actions drive the program.
  */
 const App = () => {
@@ -58,6 +60,7 @@ const App = () => {
       <Container maxWidth="sm" sx={{ py: 3 }}>
         <Stack spacing={3}>
           <SunsetCard status={status} act={run} />
+          <ProgramCard status={status} act={run} />
           <FixturesCard fixtures={fixtures} />
           <SettingsCard status={status} act={run} />
           <LogPane lines={log} debug={status?.debug ?? false} />

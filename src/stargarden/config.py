@@ -7,11 +7,13 @@ settings in the field.
 
 import tomllib
 from dataclasses import dataclass, field, fields, is_dataclass, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 MIN_LEG_S, MAX_LEG_S = 10.0, 24 * 3600.0  # bounds on the sunset's length
 MIN_DUSK_LEVEL = 0.05  # the purple end dims but never goes black
+MIN_TEMPO_BPM, MAX_TEMPO_BPM = 40.0, 180.0
 
 
 class ConfigError(Exception):
@@ -31,6 +33,16 @@ class SunsetConfig:
     dusk_level: float = 0.35  # brightness at the purple end, relative to the orange end
 
 
+class FixtureRole(StrEnum):
+    BAR = "bar"  # shows the running program, cell by cell
+    SPOT = "spot"  # a pin spot on a mirror ball, with a level and color of its own
+
+
+class SpotColor(StrEnum):
+    WHITE = "white"
+    MATCH = "match"  # the running program's color
+
+
 @dataclass(frozen=True)
 class FixtureConfig:
     name: str
@@ -38,6 +50,7 @@ class FixtureConfig:
     address: int
     mode: str = ""  # DMX mode of the type; may be omitted when the type has only one
     position: tuple[float, float] = (0.0, 0.0)
+    role: FixtureRole = FixtureRole.BAR
 
 
 @dataclass(frozen=True)
@@ -53,6 +66,9 @@ class LightingConfig:
     port: str = "auto"  # serial device, or "auto" to pick the first FTDI widget
     fps: float = 30.0
     peak: float = 1.0  # ceiling on brightness (0..1). Adjustable live from the console
+    tempo_bpm: float = 100.0  # the dance patterns' pace. Adjustable live from the console
+    spot_level: float = 1.0  # the pin spots' brightness (0..1). Adjustable live from the console
+    spot_color: SpotColor = SpotColor.WHITE  # adjustable live from the console
     fixtures: tuple[FixtureConfig, ...] = ()
     profiles: dict[str, ProfileConfig] = field(default_factory=dict)
 
@@ -84,6 +100,11 @@ class Config:
 
 
 def _coerce(kind: Any, value: Any, where: str) -> Any:
+    if isinstance(kind, type) and issubclass(kind, StrEnum):
+        try:
+            return kind(value)
+        except ValueError:
+            raise ConfigError(f"{where}: expected one of {[m.value for m in kind]}, got {value!r}") from None
     if kind is Path:
         return Path(value)
     if kind is float and isinstance(value, bool):
@@ -139,6 +160,11 @@ def load_config(path: Path) -> Config:
     lighting = replace(_fill(LightingConfig, lighting_raw, "lighting"), fixtures=fixtures, profiles=profiles)
     if not 0.0 <= lighting.peak <= 1.0:
         raise ConfigError(f"lighting.peak: expected 0..1, got {lighting.peak}")
+
+    if not MIN_TEMPO_BPM <= lighting.tempo_bpm <= MAX_TEMPO_BPM:
+        raise ConfigError(f"lighting.tempo_bpm: expected {MIN_TEMPO_BPM:g}..{MAX_TEMPO_BPM:g}, got {lighting.tempo_bpm}")
+    if not 0.0 <= lighting.spot_level <= 1.0:
+        raise ConfigError(f"lighting.spot_level: expected 0..1, got {lighting.spot_level}")
 
     sunset = _fill(SunsetConfig, raw.get("sunset", {}), "sunset")
     if not MIN_LEG_S <= sunset.leg_s <= MAX_LEG_S:

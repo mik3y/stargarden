@@ -1,7 +1,7 @@
 [project]
 name = "stargarden"
 version = "0.1.0"
-description = "A permanent sunset on four DMX light bars"
+description = "A permanent sunset, and a few dance patterns, on four DMX light bars"
 readme = "README.md"
 authors = [
     { name = "mike wakerly", email = "opensource@hoho.com" }

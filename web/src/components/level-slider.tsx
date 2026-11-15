@@ -48,17 +48,31 @@ interface LevelSliderProps {
   label: string;
   value: number;
   min?: number;
+  max?: number;
+  step?: number;
+  /** How the value reads beside the slider; a percentage unless given. */
+  format?: (value: number) => string;
   onSend: (value: number) => void;
 }
 
-/** A labelled 0..1 level shown as a percentage. */
-const LevelSlider = ({ label, value, min = 0, onSend }: LevelSliderProps) => {
+const percent = (value: number): string => `${Math.round(value * 100)}%`;
+
+/** A labelled level, 0..1 shown as a percentage unless told otherwise. */
+const LevelSlider = ({
+  label,
+  value,
+  min = 0,
+  max = 1,
+  step = 0.01,
+  format = percent,
+  onSend,
+}: LevelSliderProps) => {
   const { shown, change, commit } = useDragValue(value, onSend);
   return (
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: "8.5em 1fr 3em",
+        gridTemplateColumns: "8.5em 1fr 4.5em",
         alignItems: "center",
         columnGap: 2,
       }}
@@ -66,15 +80,15 @@ const LevelSlider = ({ label, value, min = 0, onSend }: LevelSliderProps) => {
       <Typography variant="caption">{label}</Typography>
       <Slider
         min={min}
-        max={1}
-        step={0.01}
+        max={max}
+        step={step}
         value={shown}
         aria-label={label}
         onChange={(_, v) => change(v as number)}
         onChangeCommitted={(_, v) => commit(v as number)}
       />
       <Typography variant="caption" sx={{ textAlign: "right" }}>
-        {Math.round(shown * 100)}%
+        {format(shown)}
       </Typography>
     </Box>
   );
