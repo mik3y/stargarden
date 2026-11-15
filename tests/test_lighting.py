@@ -1,12 +1,10 @@
-import random
-
 import pytest
 
 from stargarden.config import ConfigError, FixtureConfig, LightingConfig, ProfileConfig
 from stargarden.lighting.drivers import ConsoleDriver
 from stargarden.lighting.engine import LightingEngine
 from stargarden.lighting.fixtures import BUILTIN_TYPES, CellState, Patch
-from stargarden.lighting.themes import AMBIENT_THEMES, DRIFT_THEMES, SHOW_THEMES, ChaseTheme, Spot, TideTheme, get_theme
+from stargarden.sunset import Sunset
 
 
 def make_cfg(*fixtures: FixtureConfig, **kw) -> LightingConfig:
@@ -52,410 +50,6 @@ def test_custom_profile_is_a_single_mode_type() -> None:
     assert patch.render([cell((1, 1, 1), 1)])[:4] == bytes([255, 255, 255, 255])
     with pytest.raises(ConfigError, match="dimmer_fine"):
         Patch.from_config(make_cfg(fx("a", "bad", "", 1), profiles={"bad": ProfileConfig(("dimmer_fine",))}))
-
-
-def test_themes_are_bounded_and_smooth() -> None:
-    spot = Spot(0, 4, 1, 4, 0, 2, ring=1, ring_count=16)
-    for theme in [*AMBIENT_THEMES.values(), *SHOW_THEMES.values(), *DRIFT_THEMES.values()]:
-        prev = theme.color(spot, 0.0)
-        for step in range(1, 200):
-            c = theme.color(spot, step * 0.1)
-            assert all(0.0 <= ch <= 1.0 for ch in c)
-            if not theme.snaps:  # the show programs are meant to cut and flash; the slow ones must not
-                assert max(abs(a - b) for a, b in zip(c, prev, strict=True)) < 0.05
-            prev = c
-            assert 0.0 <= theme.intensity(spot, step * 0.1) <= 1.0
-    with pytest.raises(KeyError):
-        get_theme("nope")
-
-
-def test_ember_waves_void_columns_and_palette() -> None:
-    theme = get_theme("ember-waves")
-    grid = {(col, row): Spot(0, 4, col, 4, row, 2) for col in range(4) for row in range(2)}
-    for t in (0.0, 3.7, 8.2, 20.5):
-        for (col, row), spot in grid.items():
-            r, g, b = theme.color(spot, t)
-            assert b <= 0.02 and r >= 0.7 and g <= 0.5 and r > g  # red through amber, never washed out
-            assert theme.intensity(spot, t) == pytest.approx(theme.intensity(grid[(col, 1 - row)], t))  # a column is one unit
-        for col in range(4):  # voids carry the same wave at a fraction of the light
-            spot = grid[(col, 0)]
-            full = theme.trough_level + (1.0 - theme.trough_level) * theme.wave(spot, t)
-            assert theme.intensity(spot, t) == pytest.approx(full * theme.gate(spot, t))
-    # the voids exchange: early in the cycle columns 2/4 are dark, half a cycle later 1/3 are, and it never jumps
-    c1, c2 = grid[(0, 0)], grid[(1, 0)]
-    assert theme.gate(c2, 1.0) == pytest.approx(theme.void_level) and theme.gate(c1, 1.0) == 1.0
-    half = theme.swap_period_s / 2
-    assert theme.gate(c1, half + 1.0) == pytest.approx(theme.void_level) and theme.gate(c2, half + 1.0) == 1.0
-    gates = [theme.gate(c1, i * 0.1) for i in range(int(theme.swap_period_s * 10))]
-    assert max(abs(a - b) for a, b in zip(gates, gates[1:], strict=False)) < 0.02
-    # the wave moves: a fixed spot sees a crest and a trough within one period
-    levels = [theme.intensity(grid[(0, 0)], t) for t in [i * 0.25 for i in range(60)]]
-    assert max(levels) > 0.8 and min(levels) < 0.4
-
-
-def test_green_tide_washes_round_the_ring_and_back() -> None:
-    theme = get_theme("green-tide")
-    assert isinstance(theme, TideTheme)
-    n = 16
-    ring = [Spot(r // 4, 4, r % 4, 4, 0, 2, ring=r, ring_count=n) for r in range(n)]
-    period = theme.period_s
-
-    def head(t: float) -> int:
-        return max(range(n), key=lambda r: theme.intensity(ring[r], t))
-
-    # out: the crest advances clockwise through the first half of the cycle, fastest in the middle
-    heads = [head(period / 4 + k * 2.0) for k in range(5)]
-    assert all(1 <= (b - a) % n <= 2 for a, b in zip(heads, heads[1:], strict=False)), heads
-    # back: counter-clockwise through the second half
-    heads = [head(3 * period / 4 + k * 2.0) for k in range(5)]
-    assert all(1 <= (a - b) % n <= 2 for a, b in zip(heads, heads[1:], strict=False)), heads
-    # it turns gently: the crest is still at the ends of the cycle and back where it started
-    assert theme.head(ring[0], 0.0) == pytest.approx(0.0) and theme.head(ring[0], period / 2) == pytest.approx(n)
-    assert abs(theme.head(ring[0], 0.5) - theme.head(ring[0], 0.0)) < 0.05
-    # the rendered crest sits where head() says, and the far side of the ring is dim
-    for t in (5.0, 21.0, 40.0, 58.0):
-        h = theme.head(ring[0], t)
-        assert min((head(t) - h) % n, (h - head(t)) % n) <= 1.0
-        far = ring[int(round(h + n / 2)) % n]
-        assert theme.intensity(far, t) < 0.5 < theme.intensity(ring[int(round(h)) % n], t)
-    # green throughout: every column, every time, and the whole bar's height lights as one column
-    for t in (0.0, 7.3, 19.0, 33.3, 50.1):
-        for spot in ring:
-            r, g, b = theme.color(spot, t)
-            assert g > r and g > b and b <= 0.2 and g >= 0.1
-            twin = Spot(spot.fixture, spot.count, spot.col, spot.cols, 1 - spot.row, spot.rows, ring=spot.ring, ring_count=n)
-            assert theme.intensity(spot, t) == pytest.approx(theme.intensity(twin, t))
-    # a fixed column sees the crest come and go within a cycle
-    levels = [theme.intensity(ring[5], k * 0.5) for k in range(int(period * 2))]
-    assert max(levels) > 0.9 and min(levels) < 0.45
-
-
-def test_orbit_chases_both_ways_then_dances() -> None:
-    theme = get_theme("orbit")
-    assert isinstance(theme, ChaseTheme)
-    n = 16
-    ring = [Spot(r // 4, 4, r % 4, 4, 0, 2, ring=r, ring_count=n) for r in range(n)]
-    chase = theme.laps * n * theme.step_s
-
-    def head(t: float) -> int:
-        return max(range(n), key=lambda r: theme.intensity(ring[r], t))
-
-    # clockwise: the brightest column advances one place per step
-    heads = [head(2.2 + k * theme.step_s) for k in range(6)]
-    assert all((b - a) % n == 1 for a, b in zip(heads, heads[1:], strict=False)), heads
-    # counter-clockwise, well inside the second movement
-    heads = [head(chase + 2.2 + k * theme.step_s) for k in range(6)]
-    assert all((a - b) % n == 1 for a, b in zip(heads, heads[1:], strict=False)), heads
-    # a lit head is bright, the far side of the room is only the glow
-    t = 2.0  # exactly on a step: the head sits squarely on one column
-    h = head(t)
-    assert theme.intensity(ring[h], t) > 0.9 and theme.intensity(ring[(h + 8) % n], t) == pytest.approx(theme.glow_level)
-    r, g, b = theme.color(ring[h], t)
-    assert b > 0.9 and g < 0.3  # blue/purple, never washed
-    # the dance: odd and even columns take turns each beat
-    t0 = 2 * chase + 3.0
-    even = [theme.intensity(ring[0], t0 + k * theme.dance_step_s) for k in range(4)]
-    odd = [theme.intensity(ring[1], t0 + k * theme.dance_step_s) for k in range(4)]
-    assert all((e > 0.8) != (o > 0.8) for e, o in zip(even, odd, strict=True))
-    assert (even[0] > 0.8) != (even[1] > 0.8)
-    # movements cross-fade rather than cut: at each boundary the two sides share the light equally
-    cycle = theme._cycle_s(ring[0])
-    assert theme._weights(ring[0], chase) == pytest.approx((0.5, 0.5, 0.0))
-    assert theme._weights(ring[0], 2 * chase) == pytest.approx((0.0, 0.5, 0.5))
-    assert theme._weights(ring[0], cycle) == pytest.approx((0.5, 0.0, 0.5))
-    assert all(sum(theme._weights(ring[0], k / 10)) == pytest.approx(1.0) for k in range(int(cycle * 10)))
-
-
-def test_violet_storm_islands_in_the_dark_with_white_flashes_on_the_beat() -> None:
-    from stargarden.lighting.themes import StormTheme, _noise
-
-    theme = get_theme("violet-storm")
-    assert isinstance(theme, StormTheme) and theme.tempo_bpm == 120.0
-    n = 16
-    ring = [Spot(r // 4, 4, r % 4, 4, 0, 2, ring=r, ring_count=n) for r in range(n)]
-    # most of the ring is dark: over a couple of minutes, well under half the columns are lit at once
-    shares = []
-    for k in range(0, 2400):
-        t = 0.05 * k
-        levels = [theme.intensity(s, t) for s in ring]
-        shares.append(sum(lv > 0.3 for lv in levels) / n)
-        assert min(levels) >= theme.glow_level
-        for s, lv in zip(ring, levels, strict=True):
-            r, g, b = theme.color(s, t)
-            if lv > 0.3 and theme.flash(s, t) == 0.0:  # lit and not flashing: violet, never washed or warm
-                assert b > 0.6 and g < 0.2 and 0.2 < r < 0.7, (r, g, b)
-    assert 0.1 < sum(shares) / len(shares) < 0.5 and max(shares) < 0.9
-    # flashes land on the beat: the chosen column goes white and full at the beat, and is over by flash_s
-    flashed = 0
-    for k in range(400):
-        if _noise(k, 7) >= theme.flash_chance:
-            continue
-        column = ring[int(_noise(k, 8) * n)]
-        t = k * theme.beat_s
-        assert theme.intensity(column, t) == pytest.approx(1.0) and min(theme.color(column, t)) > 0.9
-        assert theme.intensity(column, t + theme.flash_s + 0.01) <= theme.brightness
-        flashed += 1
-    assert 100 < flashed < 300  # about every other beat
-    assert theme.island(ring[3], 0.0) != theme.island(ring[9], 0.0)  # columns swell on their own phases
-
-
-def test_starfield_is_mostly_dark_with_stars_flaring_out() -> None:
-    from stargarden.lighting.themes import SparkleTheme
-
-    theme = get_theme("starfield")
-    assert isinstance(theme, SparkleTheme) and theme.tempo_bpm == 120.0
-    n = 16
-    cells = [Spot(r // 4, 4, r % 4, 4, row, 2, ring=r, ring_count=n) for r in range(n) for row in range(2)]
-    shares, peak = [], 0.0
-    for k in range(0, 2400):
-        t = 0.05 * k
-        levels = [theme.intensity(c, t) for c in cells]
-        shares.append(sum(lv > 0.3 for lv in levels) / len(cells))
-        peak = max(peak, *levels)
-        for c, lv in zip(cells, levels, strict=True):
-            r, g, b = theme.color(c, t)
-            assert b >= g >= r  # always on the blue side, from the floor to an ice-white star
-            if theme.stars(c, t) == 0.0:  # no star burning: just the sky, faint and never black
-                assert theme.floor_level * 0.99 <= lv <= theme.floor_level * (1.0 + theme.swell_depth) + 1e-9
-    shares.sort()
-    assert shares[len(shares) // 2] < 0.15  # most cells dark most of the time
-    assert peak > 0.95  # but the stars do come out
-    assert any(theme.stars(cells[0], 0.1 * k) != theme.stars(cells[1], 0.1 * k) for k in range(100))  # stars are cells, not columns
-
-
-def bar_cells(n: int = 16) -> list[Spot]:
-    """Four bars' colour cells: 16 columns round the ring, two rows each."""
-    return [Spot(r // 4, 4, r % 4, 4, row, 2, ring=r, ring_count=n) for r in range(n) for row in range(2)]
-
-
-def test_embers_one_or_two_coals_in_total_dark() -> None:
-    from stargarden.lighting.themes import EmberTheme
-
-    theme = get_theme("embers")
-    assert isinstance(theme, EmberTheme) and theme.tempo_bpm is None and not theme.snaps
-    cells = bar_cells()
-    counts, dark = [], 0
-    for k in range(3600):
-        t = 0.05 * k
-        levels = [theme.intensity(c, t) for c in cells]
-        counts.append(sum(lv > 0.3 for lv in levels))
-        dark += max(levels) < 0.01
-        for c, lv in zip(cells, levels, strict=True):
-            r, g, b = theme.color(c, t)
-            assert r >= g >= b and b <= 0.1  # always warm
-            if lv > 0.85:
-                assert g > 0.35  # amber at full, not red
-    assert max(counts) <= 4 and sum(counts) / len(counts) < 2.0  # a coal or two, with the odd row-mate
-    assert dark > 0.1 * 3600  # and often nothing at all
-    assert theme.intensity(cells[0], 1e-9) == 0.0  # the dark is total, no glow floor
-
-
-def test_slow_rain_falls_then_splashes_a_beat_later() -> None:
-    from stargarden.lighting.themes import RainTheme, _noise
-
-    theme = get_theme("slow-rain")
-    assert isinstance(theme, RainTheme) and theme.tempo_bpm == 120.0
-    cells = bar_cells()
-    drops, dry = 0, 0
-    for k in range(2000):
-        if _noise(k // theme.phrase_beats, 11) < theme.dry_chance:
-            dry += 1
-            if k % theme.phrase_beats >= 2:  # a dry phrase: nothing but the floor, once the last splash has faded
-                for c in cells:
-                    assert theme.intensity(c, (k + 0.5) * theme.beat_s) <= theme.floor_level + 1e-9
-            continue
-        for r in range(16):
-            if _noise(r, k, 12) >= theme.chance:
-                continue
-            top, bottom = cells[2 * r], cells[2 * r + 1]
-            start = (k + 0.9 * _noise(r, k, 13)) * theme.beat_s
-            if all(_noise(r, k - d, 12) >= theme.chance for d in (1, 2)):  # unless a drop just before is still falling or splashing here
-                assert theme.intensity(top, start + theme.attack_s) == pytest.approx(theme.floor_level + theme.fall_level, abs=1e-6)
-                assert theme.intensity(bottom, start + theme.attack_s) < 0.3  # the splash is not yet
-            assert theme.intensity(bottom, start + theme.beat_s + theme.attack_s) == pytest.approx(1.0, abs=1e-6)
-            rr, g, b = theme.color(bottom, start + theme.beat_s + theme.attack_s)
-            assert b >= g >= rr > 0.4  # blue-white
-            drops += 1
-    assert 500 < drops < 1400 and 100 < dry < 700  # about one drop every two beats across the ring, with dry spells
-
-
-def test_breath_rises_together_and_one_column_lingers() -> None:
-    from stargarden.lighting.themes import BreathTheme, _noise
-
-    theme = get_theme("breath")
-    assert isinstance(theme, BreathTheme) and theme.tempo_bpm is None and not theme.snaps
-    ring = bar_cells()[::2]
-    top = theme.cycle_s * theme.inhale
-    at_top = [theme.intensity(s, top) for s in ring]
-    assert min(at_top) > 0.9 * theme.peak_level and max(at_top) <= theme.peak_level  # the whole ring, near enough together
-    held = int(_noise(0, 21) * 16)  # the first cycle's column
-    late = theme.cycle_s * 0.97
-    levels = [theme.intensity(s, late) for s in ring]
-    assert levels[held] == max(levels) and levels[held] > 2 * sorted(levels)[-2]  # still letting go while the rest are at the trough
-    assert min(levels) < theme.trough_level + 0.02
-    for s in ring:
-        for k in range(300):
-            r, g, b = theme.color(s, 0.1 * k)
-            assert r == 0.0 and g > 0.0 and b > 0.0  # on the teal line, never black
-            assert theme.intensity(s, 0.1 * k) <= theme.peak_level + 1e-9
-
-
-def test_moths_wander_to_neighboring_columns_a_few_at_a_time() -> None:
-    from stargarden.lighting.themes import MothTheme, _moth_at
-
-    theme = get_theme("moths")
-    assert isinstance(theme, MothTheme) and theme.tempo_bpm == 120.0
-    cells = bar_cells()
-    counts = []
-    for k in range(2400):
-        t = 0.05 * k
-        levels = [theme.intensity(c, t) for c in cells]
-        counts.append(sum(lv > 0.5 for lv in levels))
-        assert max(levels) <= theme.brightness + 1e-9
-    assert max(counts) <= theme.count + 1 and sum(counts) / len(counts) < 3.0  # +1: a step in progress lights two cells
-    assert theme.color(cells[0], 1.0) == theme.moth
-    for m in range(theme.count):
-        path = [_moth_at(m, 2, b, 16, 2, theme.step_chance, theme.turn_chance) for b in range(theme.epoch_beats)]
-        for (r0, _), (r1, _) in zip(path, path[1:], strict=False):
-            assert (r1 - r0) % 16 in (0, 1, 15)  # sits still or steps to a neighbour
-        assert any(r0 != r1 for (r0, _), (r1, _) in zip(path, path[1:], strict=False))  # but does move
-    assert theme.intensity(cells[0], 0.0) == 0.0  # an epoch starts dark and fades in
-
-
-def test_spot_grid_and_ring_from_bar_cells(clock) -> None:
-    cfg = make_cfg(fx("bar", "jolt_bar_fx2", "38ch", 1), fx("wash", "generic", "rgb", 40))
-    engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("ember-waves"), random.Random(1), clock=clock)
-    bar, wash = engine._spots
-    assert bar["rgb1"] == Spot(0, 2, 0, 4, 0, 2, 0, 5) and bar["rgb5"] == Spot(0, 2, 0, 4, 1, 2, 0, 5)
-    assert bar["rgb8"] == Spot(0, 2, 3, 4, 1, 2, 3, 5)
-    assert wash["cell"] == Spot(1, 2, ring=4, ring_count=5) and wash["cell"].index == 1.0
-    clock.t = 0.0  # start of the exchange cycle: columns 1/3 hold the light
-    engine.fade_master(1.0, 0.0)
-    frame = engine.frame(clock())[0]
-    assert frame["rgb1"].intensity == pytest.approx(frame["rgb5"].intensity)  # a column's two rows match
-    assert frame["rgb2"].intensity < 0.1 * frame["rgb1"].intensity  # column 2 is a void
-
-
-def test_ring_runs_clockwise_from_north_by_position() -> None:
-    cfg = make_cfg(
-        FixtureConfig("nw", "generic", 1, "rgb", (-0.8, 0.8)),
-        FixtureConfig("ne", "generic", 4, "rgb", (0.8, 0.8)),
-        FixtureConfig("sw", "generic", 7, "rgb", (-0.8, -0.8)),
-        FixtureConfig("se", "generic", 10, "rgb", (0.8, -0.8)),
-    )
-    engine = LightingEngine(Patch.from_config(cfg), ConsoleDriver(), cfg, get_theme("orbit"), random.Random(1))
-    assert [s["cell"].ring for s in engine._spots] == [3, 0, 2, 1]  # ne, se, sw, nw going clockwise from north
-
-
-def test_washes_render_unchanged(clock) -> None:
-    """Four washes and a bar (the original dev rig) must render byte-for-byte what the previous fixture model produced."""
-    cfg = make_cfg(
-        fx("tree-nw", "generic", "dim_rgbw", 1),
-        fx("tree-ne", "generic", "dim_rgbw", 6),
-        fx("tree-sw", "generic", "dim_rgbw", 11),
-        fx("tree-se", "generic", "dim_rgbw", 16),
-        fx("sky", "jolt_bar_fx2", "38ch", 21),
-    )
-    patch = Patch.from_config(cfg)
-    clock.t = 1234.5
-    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
-    engine.fade_master(1.0, 0.0)
-    frame = patch.render(engine.frame(clock()))
-    washes = b"".join(frame[f.address - 1 : f.address + 4] for f in patch.fixtures[:4])
-    assert washes == bytes([188, 0, 73, 132, 5, 217, 0, 64, 121, 44, 191, 0, 7, 105, 70, 198, 13, 0, 115, 19])
-    sky = patch.fixtures[4].address - 1
-    bar = frame[sky : sky + 38]  # jolt 38ch: 8 lit RGB zones, outer dimmer full, both shutters open, whites dark
-    assert sum(bar[0:24]) > 0 and bar[24] > 150 and bar[26:29] == bytes([0, 0, 0])  # theme intensity on the outer dimmer
-    assert bar[29:38] == bytes(9)
-
-
-def test_peak_caps_themes_but_not_lightning(clock) -> None:
-    from stargarden.lightning import StrikeOverlay, compose_strike
-
-    cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("sky", "jolt_bar_fx2", "38ch", 10), peak=0.5)
-    patch = Patch.from_config(cfg)
-    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
-    engine.fade_master(1.0, 0.0)
-    clock.advance(1)
-    half = engine.frame(clock())[0]["cell"].intensity
-    engine.set_peak(1.0)
-    assert engine.frame(clock())[0]["cell"].intensity == pytest.approx(half * 2)
-    assert engine.nudge_peak(-0.3) == pytest.approx(0.7) and engine.nudge_peak(-2.0) == 0.0
-    assert engine.frame(clock())[0]["cell"].intensity == 0.0
-
-    engine.set_peak(0.2)
-    strike = compose_strike(random.Random(5), {"a": (-0.8, 0.8), "sky": (0.8, 0.8)}, "sky", (0.3, 2.5))
-    engine.add_overlay(StrikeOverlay(strike, clock()))
-    clock.advance(next(f.start for f in strike.flashes["sky"] if f.level == 1.0) + 0.01)
-    frames = engine.frame(clock())
-    assert frames[1]["w1"].intensity == 1.0  # the flash ignores the peak
-    assert frames[1]["rgb1"].intensity <= 0.2
-
-
-def test_engine_fades(clock) -> None:
-    cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("sky", "generic", "rgb_strobe", 10))
-    patch = Patch.from_config(cfg)
-    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
-    assert engine.frame(clock())[0]["cell"].intensity == 0.0  # master starts dark
-    engine.fade_master(1.0, 10.0)
-    clock.advance(5)
-    mid = engine.frame(clock())[0]["cell"].intensity
-    assert 0.3 < mid < 0.6
-    clock.advance(5)
-    assert engine.frame(clock())[0]["cell"].intensity > mid
-
-    before = engine.frame(clock())[0]["cell"].color
-    engine.set_theme(get_theme("ember"), fade_s=20.0)
-    clock.advance(0.1)
-    just_after = engine.frame(clock())[0]["cell"].color
-    assert max(abs(a - b) for a, b in zip(before, just_after, strict=True)) < 0.05  # crossfade, not a jump
-    clock.advance(30)
-    engine.frame(clock())
-    assert engine._prev_theme is None
-
-
-def test_tempo_scales_a_show_theme_without_a_jump(clock) -> None:
-    cfg = make_cfg(
-        FixtureConfig("nw", "generic", 1, "rgb", (-0.8, 0.8)),
-        FixtureConfig("ne", "generic", 4, "rgb", (0.8, 0.8)),
-        FixtureConfig("sw", "generic", 7, "rgb", (-0.8, -0.8)),
-        FixtureConfig("se", "generic", 10, "rgb", (0.8, -0.8)),
-    )
-    patch = Patch.from_config(cfg)
-    orbit = get_theme("orbit")
-    assert orbit.tempo_bpm == 120.0 and get_theme("ember-waves").tempo_bpm is None
-    engine = LightingEngine(patch, ConsoleDriver(), cfg, orbit, random.Random(1), clock=clock)
-    engine.fade_master(1.0, 0.0)
-    clock.t = 1000.0
-    assert engine.theme_time(1000.0) == 1000.0  # no tempo: the theme runs on the engine's clock
-
-    engine.set_tempo(60.0)  # half speed
-    assert engine.tempo == 60.0
-    assert engine.theme_time(1004.0) == 1002.0
-    clock.t = 1004.0
-    slowed = engine.frame(clock())
-    engine.set_tempo(None)
-    assert engine.theme_time(1004.0) == 1002.0  # released: rate 1× from here, no jump
-    assert engine.theme_time(1005.0) == 1003.0
-    engine.set_tempo(240.0)
-    assert engine.theme_time(1005.0) == 1004.0
-    engine.set_tempo(None)
-
-    plain = LightingEngine(patch, ConsoleDriver(), cfg, orbit, random.Random(1), clock=clock)
-    plain.fade_master(1.0, 0.0)
-    assert slowed == plain.frame(1002.0)  # what the slowed theme showed at 1004 is what it shows unslowed at 1002
-
-    engine.set_theme(get_theme("ember-waves"), fade_s=0.0)  # not written at a tempo: unaffected
-    clock.t = 1100.0
-    engine.frame(clock())
-    before = engine.theme_time(1110.0)
-    engine.set_tempo(70.0)
-    assert engine.theme_time(1110.0) == before
-    with pytest.raises(ValueError):
-        engine.set_tempo(0.0)
-
-
-# -- ADJ Jolt Bar FX2 -------------------------------------------------------------
 
 
 def test_jolt_bar_fx2_all_modes() -> None:
@@ -522,16 +116,30 @@ def test_jolt_bar_fx2_zoned_modes() -> None:
     assert out[30:32] == bytes([191, 255]) and out[32:35] == bytes([0, 0, 0])
 
 
-def test_engine_renders_bar_as_two_row_gradient(clock) -> None:
-    cfg = make_cfg(fx("a", "generic", "dim_rgbw", 1), fx("bar", "jolt_bar_fx2", "112ch", 10))
+def bars() -> LightingConfig:
+    return make_cfg(*(fx(f"bar-{k + 1}", "jolt_bar_fx2", "38ch", 1 + 38 * k) for k in range(4)), peak=0.5)
+
+
+def test_engine_shows_one_look_on_every_bar(clock) -> None:
+    cfg = bars()
     patch = Patch.from_config(cfg)
-    engine = LightingEngine(patch, ConsoleDriver(), cfg, get_theme("moonlit"), random.Random(1), clock=clock)
-    engine.fade_master(1.0, 0.0)
-    clock.advance(1)
+    sunset = Sunset(leg_s=100.0, dusk_level=0.4, clock=clock)
+    engine = LightingEngine(patch, ConsoleDriver(), cfg, sunset.look, clock=clock)
+    assert all(s.intensity == 0.0 for s in engine.frame(clock())[0].values())  # master starts dark
+    engine.fade_master(1.0, 10.0)
+    clock.advance(5)
+    assert engine.frame(clock())[0]["rgb1"].intensity == pytest.approx(0.5 * 0.5 * sunset.look()[1])  # half faded, under the peak
+    clock.advance(45)
     frames = engine.frame(clock())
-    bar = frames[1]
-    top = [bar[f"rgb{i}"].color for i in range(1, 17)]
-    assert top == [bar[f"rgb{i}"].color for i in range(17, 33)]  # bottom row mirrors the top row
-    steps = [max(abs(a - b) for a, b in zip(top[z], top[z + 1], strict=True)) for z in range(15)]
-    assert max(steps) < 0.15 and sum(steps) > 0.05  # a smooth, non-flat gradient along the bar
-    assert sum(patch.render(frames)[9:105]) > 0  # the bar's 96 RGB channels are lit
+    color, level = sunset.look()
+    assert sunset.position == pytest.approx(0.5) and level == pytest.approx(0.7)
+    for frame in frames:
+        assert all(frame[f"rgb{i}"].color == color and frame[f"rgb{i}"].intensity == pytest.approx(level * 0.5) for i in range(1, 9))
+        assert all(frame[f"w{j}"].intensity == 0.0 for j in range(1, 5))  # no white in a sunset
+    universe = patch.render(frames)
+    assert universe[0:38] == universe[38:76] == universe[76:114] == universe[114:152]  # four identical bars
+    assert universe[0:3] == bytes([255, 10, 0])  # red, halfway
+    engine.set_peak(1.0)
+    assert engine.frame(clock())[0]["rgb1"].intensity == pytest.approx(level)
+    engine.fade_master(0.0, 0.0)
+    assert engine.frame(clock())[0]["rgb1"].intensity == 0.0

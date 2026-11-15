@@ -10,8 +10,8 @@
 set -euo pipefail
 
 code="$HOME/stargarden"
-packages=(screen rsync libportaudio2 libsndfile1 bluez iw dnsmasq-base nftables)
-groups=(dialout audio bluetooth plugdev)  # DMX serial port, audio device, BLE scanner, USB
+packages=(screen rsync iw dnsmasq-base nftables)
+groups=(dialout plugdev)  # DMX serial port, USB
 AP=stargarden-ap  # the fallback access point (deploy/wifi-watch.sh raises it)
 AP_SSID=${AP_SSID:-stargarden}
 AP_PSK=${AP_PSK:-star4321}
@@ -50,7 +50,7 @@ for g in "${groups[@]}"; do
 done
 
 echo "== fallback access point"
-sudo rfkill unblock wifi bluetooth
+sudo rfkill unblock wifi
 wifi=$(nmcli -t -f DEVICE,TYPE device status | awk -F: '$2 == "wifi" { print $1; exit }')
 if [[ -z "$wifi" ]]; then
     echo "no wifi device; skipping"
@@ -74,4 +74,3 @@ systemctl --no-pager status stargarden | head -5
 echo
 echo "done. \`screen -r stargarden\` (or \`just attach\`) shows the log; the web console is at http://$(hostname)/ (port 80 -> 7710)."
 echo "with no wifi for 60s the Pi raises its own network: ssid $AP_SSID, console at http://${AP_ADDRESS%/*}/."
-echo "fill in configs/production.toml (coordinates, sensor MACs) on the laptop and \`just deploy\`."

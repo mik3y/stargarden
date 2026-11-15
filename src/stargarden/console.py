@@ -1,10 +1,9 @@
-"""The control surface shared by every console.
+"""The web console's control surface.
 
-What a console shows (a `Status` snapshot, the fixture preview, the log stream)
-and what it may do (the `Console` actions) live here, so the Textual TUI and the
-web console are thin views over one model and cannot drift apart. A new control
-is added here first — a field on `Status`, or an `@action` method on `Console` —
-and each front end then shows it its own way (`tui/app.py`, `web.py` and `web/`).
+What the console shows (a `Status` snapshot, the fixture preview, the log
+stream) and what it may do (the `Console` actions) live here. A new control is
+added here first, as a field on `Status` or an `@action` method on `Console`,
+and `web/` then draws it.
 """
 
 import logging
@@ -14,17 +13,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from .app import Stargarden
-from .audio import Layer
-from .conductor import State
-from .config import SensorRole
 from .lighting.color import RGB
-from .lighting.themes import AMBIENT_THEMES, SHOW_THEMES
+from .sunset import color_at, level_at
 
 log = logging.getLogger(__name__)
 
-LEVEL_STEP = 0.05
-PEAK = "peak"  # the lighting ceiling, shown alongside the audio layers
-LEVELS: tuple[str, ...] = (*Layer, PEAK)
+NUDGE = 0.05  # one press of darker or brighter
+PALETTE_STEPS = 21  # swatches along the console's picture of the sunset
 LOGGER_PREFIX = "stargarden."
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
@@ -37,13 +32,10 @@ class UnknownAction(ActionError):
     pass
 
 
-# -- log stream -----------------------------------------------------------------
-
-
 class LogBuffer(logging.Handler):
-    """Ring of recent log records, numbered so that several consoles can each read
-    from where they left off. Records arrive from any thread (the audio callback
-    logs too); `since` is safe to call from the event loop."""
+    """Ring of recent log records, numbered so that several browsers can each read
+    from where they left off. Records arrive from any thread; `since` is safe to
+    call from the event loop."""
 
     def __init__(self, maxlen: int = 500) -> None:
         super().__init__()
@@ -71,18 +63,15 @@ class LogBuffer(logging.Handler):
             return [(s, r) for s, r in self._records if s >= seq], self._next
 
 
-def install_log_buffer(level: str, stderr: bool = False) -> LogBuffer:
-    """Route the root logger into a `LogBuffer` (and, headless, to stderr as well)."""
+def install_log_buffer(level: str) -> LogBuffer:
+    """Route the root logger into a `LogBuffer` and to stderr."""
     buffer = LogBuffer()
-    handlers: list[logging.Handler] = [buffer]
-    if stderr:
-        stream = logging.StreamHandler()
-        stream.setFormatter(logging.Formatter(LOG_FORMAT))
-        handlers.append(stream)
+    stream = logging.StreamHandler()
+    stream.setFormatter(logging.Formatter(LOG_FORMAT))
     root = logging.getLogger()
     root.setLevel(level)
-    root.handlers = handlers
-    logging.captureWarnings(True)  # Python warnings reach the consoles instead of the terminal
+    root.handlers = [buffer, stream]
+    logging.captureWarnings(True)  # Python warnings reach the console too
     return buffer
 
 
@@ -102,73 +91,25 @@ def debug_enabled() -> bool:
     return logging.getLogger().level <= logging.DEBUG
 
 
-# -- snapshots ------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ProgramStatus:
-    """One lighting program: its pool, whether the random rotation may pick it, whether it is on now."""
-
-    name: str
-    pool: str  # "ambient" | "show"
-    enabled: bool
-    playing: bool
-
-
-@dataclass(frozen=True)
-class TrackStatus:
-    """One show track: in the random rotation or not, on now, queued for the next show, and what is known of it."""
-
-    id: str
-    title: str
-    theme: str | None  # the manifest's choice of lighting program, or None for the rotation's
-    bpm: float | None  # the manifest's or the measured tempo; None until measured
-    enabled: bool
-    playing: bool
-    next: bool
-
-
-@dataclass(frozen=True)
-class SettingStatus:
-    """One timing setting: what is in force and what the config file says."""
-
-    name: str
-    value: float
-    default: float
-
-
 @dataclass(frozen=True)
 class Status:
-    """Everything a console's status panel shows, as plain data (JSON-ready)."""
+    """Everything the console's panels show, as plain data (JSON-ready)."""
 
     site: str
-    state: str
-    forced: str | None
-    night: bool
-    night_override: bool | None
-    next_transition: str | None  # ISO 8601 in the site's timezone, or None when the schedule is off
-    occupied: bool
-    hold_remaining_s: float | None
-    motion_ago_s: dict[str, float | None]  # by sensor role
-    show_in_s: float | None
-    shows_this_visit: int
-    theme: str
+    on: bool
+    master: float  # the on/off fade, 0..1
     driver: str
-    master: float
-    storm_in_s: float | None
-    lightning_allowed: bool
-    audio_out: str
-    audio_mode: str
-    samplerate: int
-    bed: str | None
-    music: str | None
-    bpm: float | None  # the show track's tempo, which the lighting program is running at
-    levels: dict[str, float]  # audio layers and the lighting peak, in LEVELS order
+    position: float  # the sunset's place, 0 (orange) to 1 (purple)
+    shown: float  # the place the lights show, gliding toward `position`
+    direction: str  # "darkening" | "brightening"
+    paused: bool
+    leg_s: float
+    leg_remaining_s: float
+    peak: float
+    dusk_level: float
+    palette: list[tuple[int, int, int]]  # the sunset end to end, as it looks at the current dusk level
     debug: bool
-    check: bool  # the setup check is walking the corners
-    programs: list[ProgramStatus]
-    tracks: list[TrackStatus]
-    settings: list[SettingStatus]  # in app.SETTINGS order
+    check: bool  # the setup check is walking the bars
 
 
 @dataclass(frozen=True)
@@ -181,7 +122,7 @@ class CellPreview:
 @dataclass(frozen=True)
 class FixturePreview:
     """A fixture's color cells row by row (top first, left to right), and its white
-    cells (what lightning flashes) as grey swatches."""
+    cells as grey swatches."""
 
     name: str
     rows: tuple[tuple[CellPreview, ...], ...]
@@ -194,13 +135,6 @@ def swatch_rgb(color: RGB, intensity: float, peak: float) -> tuple[int, int, int
     level = min(1.0, intensity / peak if peak > 0 else intensity)  # an overlay's absolute level must not overshoot
     r, g, b = (int(round(255 * min(1.0, ch * level))) for ch in color)
     return r, g, b
-
-
-def _fmt_dt(dt) -> str | None:
-    return dt.isoformat(timespec="seconds") if dt is not None else None
-
-
-# -- the console ----------------------------------------------------------------
 
 
 def action(fn: Callable) -> Callable:
@@ -216,62 +150,27 @@ class Console:
         self.program = program
         self.log_buffer = log_buffer
 
-    # -- snapshots ----------------------------------------------------------------
-
     def status(self) -> Status:
         p = self.program
-        c = p.conductor
+        sunset = p.sunset
+        steps = [k / (PALETTE_STEPS - 1) for k in range(PALETTE_STEPS)]
         return Status(
             site=p.config.site.name,
-            state=c.state.value,
-            forced=c.forced.value if c.forced else None,
-            night=c.night,
-            night_override=p.night_override,
-            next_transition=_fmt_dt(p.schedule.next_transition()),
-            occupied=p.occupancy.occupied,
-            hold_remaining_s=p.occupancy.hold_remaining(),
-            motion_ago_s={role.value: p.occupancy.seconds_since(role) for role in SensorRole},
-            show_in_s=c.time_to_show(),
-            shows_this_visit=c.shows_this_visit,
-            theme=p.lighting.theme.name,
-            driver=p.lighting.driver.name,
+            on=p.on,
             master=p.lighting.master(),
-            storm_in_s=p.lightning.time_to_next(),
-            lightning_allowed=p.lightning_allowed(),
-            audio_out=getattr(p.audio.backend, "device_name", p.audio.backend.name),
-            audio_mode=p.config.audio.mode.value,
-            samplerate=p.config.audio.samplerate,
-            bed=p.audio.current_bed.path.name if p.audio.current_bed else None,
-            music=p.audio.current_music.title if p.audio.current_music else None,
-            bpm=p.lighting.tempo,
-            levels={name: self.level(name) for name in LEVELS},
+            driver=p.lighting.driver.name,
+            position=sunset.position,
+            shown=sunset.shown(),
+            direction=sunset.direction,
+            paused=sunset.paused,
+            leg_s=sunset.leg_s,
+            leg_remaining_s=sunset.leg_remaining_s,
+            peak=p.lighting.peak,
+            dusk_level=sunset.dusk_level,
+            palette=[swatch_rgb(color_at(u), level_at(u, sunset.dusk_level), 1.0) for u in steps],
             debug=debug_enabled(),
             check=p.check.running,
-            programs=self.programs(),
-            tracks=self.tracks(),
-            settings=self.settings(),
         )
-
-    def settings(self) -> list[SettingStatus]:
-        current, defaults = self.program.settings(), self.program.setting_defaults()
-        return [SettingStatus(name, current[name], defaults[name]) for name in defaults]
-
-    def programs(self) -> list[ProgramStatus]:
-        p = self.program
-        disabled, playing = p.overrides.disabled_themes, p.lighting.theme.name
-        return [
-            ProgramStatus(name, pool, name not in disabled, name == playing)
-            for pool, themes in (("ambient", AMBIENT_THEMES), ("show", SHOW_THEMES))
-            for name in themes
-        ]
-
-    def tracks(self) -> list[TrackStatus]:
-        p = self.program
-        disabled, playing, queued = p.overrides.disabled_tracks, p.audio.current_music, p.next_music
-        return [
-            TrackStatus(m.id, m.title, m.theme, p.tempo.bpm_for(m), m.id not in disabled, m is playing, m is queued)
-            for m in p.manifest.music
-        ]
 
     def fixtures(self) -> list[FixturePreview]:
         p = self.program
@@ -296,13 +195,6 @@ class Console:
             previews.append(FixturePreview(fixture.name, tuple(rows), tuple(whites)))
         return previews
 
-    def level(self, name: str) -> float:
-        if name == PEAK:
-            return self.program.lighting.peak
-        return self.program.audio.level(Layer(name))
-
-    # -- actions ------------------------------------------------------------------
-
     def act(self, name: str, params: dict[str, Any] | None = None) -> Any:
         """Run the action called `name` with keyword arguments from `params` (JSON-ish
         values; enums are given by value). Bad names or arguments raise `ActionError`."""
@@ -315,44 +207,64 @@ class Console:
             raise ActionError(f"{name}: {e}") from None
 
     @action
-    def motion(self, role: str) -> None:
-        """Fake a motion event from the platform or walkway sensor."""
-        self.program.simulate_motion(SensorRole(role))
+    def set_on(self, on: bool) -> bool:
+        """Fade the lights up or out."""
+        if not isinstance(on, bool):
+            raise ValueError("on must be true or false")
+        self.program.set_on(on)
+        return on
 
     @action
-    def force(self, state: str | None) -> None:
-        """Pin the program to a state until released (`state = None`)."""
-        self.program.conductor.force(State(state) if state is not None else None)
+    def toggle_on(self) -> bool:
+        """Flip the lights."""
+        return self.set_on(not self.program.on)
 
     @action
-    def release(self) -> None:
-        self.program.conductor.force(None)
+    def set_position(self, position: float) -> float:
+        """Hold the sunset at a place, 0 (orange) to 1 (purple), until resumed."""
+        return self.program.seek(_number(position, "position"))
 
     @action
-    def set_night(self, night: bool | None) -> None:
-        """Override the sunset schedule (True = night, False = day); None hands it back to the schedule."""
-        if night is not None and not isinstance(night, bool):
-            raise ValueError("night must be true, false or null")
-        self.program.set_night_override(night)
+    def nudge(self, steps: int = 1) -> float:
+        """Hold the sunset a few steps darker (or, negative, brighter) than it is."""
+        return self.program.seek(self.program.sunset.position + NUDGE * _number(steps, "steps"))
 
     @action
-    def toggle_night(self) -> bool:
-        night = not self.program.conductor.night
-        self.program.set_night_override(night)
-        return night
+    def set_paused(self, paused: bool) -> bool:
+        """Hold the sunset where it is, or let it run on from there."""
+        if not isinstance(paused, bool):
+            raise ValueError("paused must be true or false")
+        self.program.set_paused(paused)
+        return paused
 
     @action
-    def lightning(self) -> None:
-        self.program.lightning.strike()
+    def toggle_paused(self) -> bool:
+        """Hold the sunset if it runs, release it if it is held."""
+        return self.set_paused(not self.program.sunset.paused)
 
     @action
-    def discrete(self) -> bool:
-        return self.program.audio.fire_discrete()
+    def restart(self) -> None:
+        """Run the sunset from the orange end."""
+        self.program.restart()
+
+    @action
+    def set_leg(self, seconds: float) -> float:
+        """Change how long orange to purple takes, live and persisted."""
+        return self.program.set_leg(_number(seconds, "seconds"))
+
+    @action
+    def set_peak(self, value: float) -> float:
+        """Set the ceiling on brightness (0..1)."""
+        return self.program.set_peak(_number(value, "value"))
+
+    @action
+    def set_dusk_level(self, value: float) -> float:
+        """Set the brightness of the purple end, relative to the orange end."""
+        return self.program.set_dusk_level(_number(value, "value"))
 
     @action
     def set_check(self, on: bool) -> bool:
-        """Run the setup check (a tone per speaker, red/green/blue/white per bar, corner by corner)
-        with the program pinned to OFF, or stop it and hand the state back."""
+        """Run the setup check (red/green/blue/white on each bar in turn), or stop it."""
         if not isinstance(on, bool):
             raise ValueError("on must be true or false")
         if on:
@@ -363,85 +275,17 @@ class Console:
 
     @action
     def toggle_check(self) -> bool:
+        """Flip the setup check."""
         return self.set_check(not self.program.check.running)
 
     @action
-    def set_theme_enabled(self, name: str, enabled: bool) -> bool:
-        """Put a lighting program into the random rotation or take it out (at least one per pool stays in)."""
-        if not isinstance(name, str) or not isinstance(enabled, bool):
-            raise ValueError("name must be a program name and enabled true or false")
-        self.program.set_theme_enabled(name, enabled)
-        return enabled
-
-    @action
-    def set_theme(self, name: str) -> str:
-        """Play a lighting program now, by name."""
-        if not isinstance(name, str):
-            raise ValueError("name must be a program name")
-        return self.program.set_theme(name).name
-
-    @action
-    def set_track_enabled(self, id: str, enabled: bool) -> bool:
-        """Put a show track into the random rotation or take it out (at least one stays in)."""
-        if not isinstance(id, str) or not isinstance(enabled, bool):
-            raise ValueError("id must be a track id and enabled true or false")
-        self.program.set_track_enabled(id, enabled)
-        return enabled
-
-    @action
-    def queue_track(self, id: str | None) -> str | None:
-        """The next show plays this track (`id = None` clears the queue); returns the queued id."""
-        if id is not None and not isinstance(id, str):
-            raise ValueError("id must be a track id or null")
-        track = self.program.queue_track(id)
-        return track.id if track else None
-
-    @action
-    def play_track(self, id: str) -> str:
-        """A show with this track now: entering show mode, or starting the show over."""
-        if not isinstance(id, str):
-            raise ValueError("id must be a track id")
-        return self.program.play_track(id).id
-
-    @action
-    def set_setting(self, name: str, value: float) -> float:
-        """Change a timing setting (see `app.SETTINGS`), live and persisted; returns what is in force."""
-        if not isinstance(name, str):
-            raise ValueError("name must be a setting name")
-        return self.program.set_setting(name, value)
-
-    @action
     def reset_defaults(self) -> None:
-        """Levels, peak, timing, program and track choices back to the config file's values."""
+        """Length, dusk level and peak back to the config file's values, with the sunset running."""
         self.program.reset_overrides()
 
     @action
-    def next_theme(self) -> str:
-        """Step to the next lighting program in the current mode's pool (show themes during a show,
-        ambient ones otherwise), in a fixed order; returns its name."""
-        return self.program.next_theme().name
-
-    @action
-    def set_level(self, name: str, value: float) -> float:
-        """Set an audio layer's level or the lighting peak (0..1)."""
-        if name not in LEVELS:
-            raise ValueError(f"unknown level {name!r}; have {list(LEVELS)}")
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            raise ValueError("value must be a number")
-        value = min(1.0, max(0.0, float(value)))
-        if name == PEAK:
-            self.program.set_peak(value)
-        else:
-            self.program.set_level(Layer(name), value)
-        return self.level(name)
-
-    @action
-    def nudge_level(self, name: str, delta: float) -> float:
-        return self.set_level(name, self.level(name) + delta)
-
-    @action
     def set_debug(self, debug: bool) -> bool:
-        """Show DEBUG-level lines in the consoles' log panes."""
+        """Show DEBUG-level lines in the log pane."""
         if debug != debug_enabled():
             logging.getLogger().setLevel(logging.DEBUG if debug else logging.INFO)
             log.info("log level %s", "DEBUG" if debug else "INFO")
@@ -450,3 +294,10 @@ class Console:
     @action
     def toggle_debug(self) -> bool:
         return self.set_debug(not debug_enabled())
+
+
+def _number(value: Any, name: str) -> float:
+    """A JSON number as a float; anything else is an error naming the argument."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{name} must be a number")
+    return float(value)

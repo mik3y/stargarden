@@ -1,40 +1,12 @@
-# Field config for the Raspberry Pi. Fill in coordinates and sensor addresses;
-# the DMX patch is the four bars, addressed from 1.
+# Field config for the Raspberry Pi: the four bars, addressed from 1.
 
 [site]
-name = "Stargarden"
-latitude = 37.7749
-longitude = -122.4194
-timezone = "America/Los_Angeles"
+name = "Sunset"
 
-[schedule]
-enabled = true
-sunset_offset_min = 20
-sunrise_offset_min = -30
-
-[timers]
-show_delay_s = 600
-show_repeat_delay_s = 900
-lights_out_s = 4
-
-[audio]
-backend = "sounddevice"
-device = ""  # blank: the first device with enough outputs, USB first; or a substring of its name
-mode = "quad"
-channel_map = [1, 2, 5, 6]  # 7.1 USB card: front pair + surround pair; a 4-out interface is [1, 2, 3, 4]
-samplerate = 48000
-blocksize = 1024
-
-# Where each output channel's speaker stands (outputs 1-4 in order), in the same
-# compass square as fixture positions: x -1 left … 1 right, y -1 rear … 1 front.
-# Lightning pans its thunder to the striking fixture's position, so this is what
-# keeps sound and light together; reorder to match the cabling.
-speakers = [[-1.0, 1.0], [1.0, 1.0], [-1.0, -1.0], [1.0, -1.0]]
-
-[audio.levels]
-bed = 0.8
-discretes = 0.7
-music = 0.9
+# The console changes both of these live, and the change persists over the values here.
+[sunset]
+leg_s = 900  # orange to purple in 15 minutes; the way back takes the same
+dusk_level = 0.35  # brightness at the purple end, relative to the orange end
 
 [lighting]
 driver = "enttec_open"  # Enttec Open DMX USB; "enttec_pro" for a DMX USB Pro
@@ -44,58 +16,30 @@ fps = 30
 # Four ADJ Jolt Bar FX2 in 38CH mode (set on each bar's menu), 38 channels apiece,
 # addressed back to back from 1.
 [[lighting.fixtures]]
-name = "bar-nw"
+name = "bar-1"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 1
-position = [-0.8, 0.8]
 
 [[lighting.fixtures]]
-name = "bar-ne"
+name = "bar-2"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 39
-position = [0.8, 0.8]
 
 [[lighting.fixtures]]
-name = "bar-sw"
+name = "bar-3"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 77
-position = [-0.8, -0.8]
 
 [[lighting.fixtures]]
-name = "bar-se"
+name = "bar-4"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 115
-position = [0.8, -0.8]
-
-[lightning]
-enabled = true
-mean_interval_s = 200  # strikes about this far apart on average, never closer than the floor: every three to five minutes or so
-min_interval_s = 150  # both adjustable live from the console's config page; these are the defaults
-states = ["presence", "show"]  # while someone is on the platform or a show plays; an empty forest stays calm
-thunder_delay_s = [0.3, 2.5]
-
-[presence]
-source = "ble"
-vacancy_timeout_s = 900
-
-[[presence.sensors]]
-role = "platform"
-name = "platform"
-address = "C0:2C:ED:43:73:40"
-
-[[presence.sensors]]
-role = "walkway"
-name = "walkway"
-address = "C0:2C:ED:29:56:45"
 
 [web]
 enabled = true
-host = "0.0.0.0"  # reachable from a laptop on the Pi's hotspot; there is no login, so keep that network private
+host = "0.0.0.0"  # reachable from a phone on the Pi's hotspot; there is no login, so keep that network private
 port = 7710
-
-[assets]
-root = "~/stargarden-assets"  # rsync'd there by `just deploy`; ~ is the service user's home

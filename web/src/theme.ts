@@ -1,10 +1,9 @@
 import { createTheme } from "@mui/material/styles";
 
 /**
- * Night in a forest: a near-black blue canvas, ember amber for the primary
- * (the ambient program's palette) and orbit blue-violet for the secondary
- * (the show's). Anything data-like is set in mono, like the TUI. Dark only:
- * this is a control panel read in the dark.
+ * A near-black blue canvas, sunset amber for the primary and dusk violet for
+ * the secondary. Anything data-like is set in mono. Dark only: this is a
+ * control panel read in a dim room.
  *
  * No web fonts: the program runs offline in the field.
  */

@@ -9,17 +9,6 @@ export function fmtSeconds(seconds: number | null | undefined): string {
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
-/** "HH:MM" (local time) for an ISO instant; "—" when there is none. */
-export function fmtClock(iso: string | null): string {
-  if (!iso) {
-    return "—";
-  }
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 /** "HH:MM:SS.mmm" for a log line's Unix time. */
 export function fmtLogTime(seconds: number): string {
   const date = new Date(seconds * 1000);

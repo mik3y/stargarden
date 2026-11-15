@@ -1,89 +1,45 @@
-# Developer config: stereo output, sensors faked from the console, and DMX out
-# through an Enttec Open DMX USB if one is plugged in (the console still shows
-# virtual fixtures either way).
+# Developer config: a short sunset, and DMX out through an Enttec Open DMX USB
+# if one is plugged in (the web console shows virtual fixtures either way).
 
 [site]
-name = "Stargarden (dev)"
-latitude = 37.7749
-longitude = -122.4194
-timezone = "America/Los_Angeles"
+name = "Sunset (dev)"
 
-[schedule]
-enabled = false  # always "night"; toggle day/night with `n` in the console
-
-[timers]
-show_delay_s = 45
-show_repeat_delay_s = 60
-lights_out_s = 3
-ambient_theme_rotation_s = 180
-
-[audio]
-backend = "auto"
-mode = "quad"  # the first device with enough outputs is used (USB first); without one, folds to stereo on the default
-channel_map = [1, 2, 5, 6]  # 7.1 USB card: front pair + surround pair
-
-[discretes]
-min_interval_s = 8
-max_interval_s = 25
+[sunset]
+leg_s = 60  # orange to purple in a minute, so a whole cycle can be watched
+dusk_level = 0.35
 
 [lighting]
 driver = "enttec_open"  # "console" for no hardware at all
 port = "auto"  # or pin it, e.g. "/dev/cu.usbserial-B000E5T5"
 fps = 30
-peak = 0.8  # brightness ceiling for the themes; tab to "peak" in the console and nudge with [ ]
+peak = 0.8
 
 # Four ADJ Jolt Bar FX2 in 38CH mode (set on each bar's menu), 38 channels apiece,
 # addressed back to back from 1.
 [[lighting.fixtures]]
-name = "bar-nw"
+name = "bar-1"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 1
-position = [-0.8, 0.8]
 
 [[lighting.fixtures]]
-name = "bar-ne"
+name = "bar-2"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 39
-position = [0.8, 0.8]
 
 [[lighting.fixtures]]
-name = "bar-sw"
+name = "bar-3"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 77
-position = [-0.8, -0.8]
 
 [[lighting.fixtures]]
-name = "bar-se"
+name = "bar-4"
 type = "jolt_bar_fx2"
 mode = "38ch"
 address = 115
-position = [0.8, -0.8]
-
-[lightning]
-mean_interval_s = 120  # dev: storms every couple of minutes while someone is on the platform
-min_interval_s = 30
-thunder_delay_s = [0.3, 2.5]
-
-[presence]
-source = "ble"
-vacancy_timeout_s = 120
-
-[[presence.sensors]]
-role = "platform"
-name = "platform"
-address = "3959F0F8-69B9-683D-98F6-D0112B50C4EE"
-
-[[presence.sensors]]
-role = "walkway"
-name = "walkway"
-address = "5DFA9345-E906-2AED-CB1F-6DED6A60EC99"
 
 [web]
 enabled = true  # http://127.0.0.1:7710/ once `bun run build` has been run in web/ (see README)
 port = 7710
-
-[assets]
-root = "../assets-dev"

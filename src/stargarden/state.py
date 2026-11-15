@@ -1,20 +1,17 @@
-"""Console settings that outlive a run: the audio levels, the lighting peak,
-which programs and tracks are out of the random rotation, and the timing
-settings (how often discretes and lightning come).
+"""Console settings that outlive a run: the lighting peak, the sunset's length
+and dusk level, and the place it is held at.
 
 The config file is the committed, deployed source of defaults; this is the
-layer of overrides made from a console, kept in a small JSON file outside the
+layer of overrides made from the console, kept in a small JSON file outside the
 code directory (`[state] path`, `~/.local/state/stargarden/state.json` by
 default) so a deploy's rsync never touches it. Only what was changed is
-stored, and disabled programs and tracks are stored rather than enabled ones,
-so one added in a later deploy joins the rotation by itself. Delete the file
-to go back to the config.
+stored. Delete the file to go back to the config.
 """
 
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -23,59 +20,29 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Overrides:
-    levels: dict[str, float] = field(default_factory=dict)  # audio layer name → level
     peak: float | None = None
-    disabled_themes: set[str] = field(default_factory=set)
-    disabled_tracks: set[str] = field(default_factory=set)  # by manifest id (the entry's `file`)
-    settings: dict[str, float] = field(default_factory=dict)  # setting name → value (app.SETTINGS)
+    leg_s: float | None = None
+    dusk_level: float | None = None
+    hold: float | None = None  # the place the sunset is held at, 0..1; None while it runs
 
-    @property
-    def empty(self) -> bool:
-        return not (self.levels or self.peak is not None or self.disabled_themes or self.disabled_tracks or self.settings)
-
-    def to_json(self) -> dict[str, Any]:
-        out: dict[str, Any] = {}
-        if self.levels:
-            out["levels"] = dict(sorted(self.levels.items()))
-        if self.peak is not None:
-            out["peak"] = self.peak
-        if self.disabled_themes:
-            out["disabled_themes"] = sorted(self.disabled_themes)
-        if self.disabled_tracks:
-            out["disabled_tracks"] = sorted(self.disabled_tracks)
-        if self.settings:
-            out["settings"] = dict(sorted(self.settings.items()))
-        return out
+    def to_json(self) -> dict[str, float]:
+        """The overrides that are set."""
+        return {name: value for name, value in asdict(self).items() if value is not None}
 
     @classmethod
     def from_json(cls, data: Any) -> Overrides:
+        """Overrides from a parsed file, ignoring names since dropped."""
         if not isinstance(data, dict):
             raise ValueError("expected an object")
-        levels = data.get("levels", {})
-        if not isinstance(levels, dict) or not all(isinstance(k, str) and _is_number(v) for k, v in levels.items()):
-            raise ValueError("levels: expected {name: number}")
-        peak = data.get("peak")
-        if peak is not None and not _is_number(peak):
-            raise ValueError("peak: expected a number")
-        disabled = {}
-        for key in ("disabled_themes", "disabled_tracks"):
-            names = data.get(key, [])
-            if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
-                raise ValueError(f"{key}: expected a list of names")
-            disabled[key] = set(names)
-        settings = data.get("settings", {})
-        if not isinstance(settings, dict) or not all(isinstance(k, str) and _is_number(v) for k, v in settings.items()):
-            raise ValueError("settings: expected {name: number}")
-        return cls(
-            {k: float(v) for k, v in levels.items()},
-            None if peak is None else float(peak),
-            **disabled,
-            settings={k: float(v) for k, v in settings.items()},
-        )
-
-
-def _is_number(v: Any) -> bool:
-    return isinstance(v, int | float) and not isinstance(v, bool)
+        values = {}
+        for f in fields(cls):
+            value = data.get(f.name)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise ValueError(f"{f.name}: expected a number")
+            values[f.name] = float(value)
+        return cls(**values)
 
 
 class StateStore:
@@ -103,13 +70,14 @@ class StateStore:
 
     def save(self, overrides: Overrides) -> None:
         """Write atomically (temp file, then rename), or remove the file when nothing is overridden."""
-        if overrides.empty:
+        data = overrides.to_json()
+        if not data:
             self.clear()
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(overrides.to_json(), f, indent=2)
+            json.dump(data, f, indent=2)
             f.write("\n")
             f.flush()
             os.fsync(f.fileno())

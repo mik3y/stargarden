@@ -1,76 +1,33 @@
 // The wire format of src/stargarden/web.py. The types mirror the dataclasses
 // in src/stargarden/console.py: a new field there is a new field here.
 
-export type State = "off" | "ambient" | "presence" | "show";
-export const STATES: State[] = ["off", "ambient", "presence", "show"];
+export type Direction = "darkening" | "brightening";
 
-export type SensorRole = "platform" | "walkway";
-
-/** `console.Status`: everything the status panel shows. */
+/** `console.Status`: everything the panels show. */
 export interface Status {
   site: string;
-  state: State;
-  forced: State | null;
-  night: boolean;
-  night_override: boolean | null;
-  /** ISO 8601 in the site's timezone; null when the schedule is off. */
-  next_transition: string | null;
-  occupied: boolean;
-  hold_remaining_s: number | null;
-  motion_ago_s: Record<string, number | null>;
-  show_in_s: number | null;
-  shows_this_visit: number;
-  theme: string;
-  driver: string;
+  on: boolean;
+  /** The on/off fade, 0..1. */
   master: number;
-  storm_in_s: number | null;
-  lightning_allowed: boolean;
-  audio_out: string;
-  audio_mode: string;
-  samplerate: number;
-  bed: string | null;
-  music: string | null;
-  bpm: number | null;
-  /** Audio layers and the lighting peak, 0..1, in display order. */
-  levels: Record<string, number>;
+  driver: string;
+  /** The sunset's place, 0 (orange) to 1 (purple). */
+  position: number;
+  /** The place the lights show, gliding toward `position`. */
+  shown: number;
+  direction: Direction;
+  paused: boolean;
+  /** Seconds from orange to purple; the way back takes the same. */
+  leg_s: number;
+  leg_remaining_s: number;
+  /** Ceiling on brightness, 0..1. */
+  peak: number;
+  /** Brightness at the purple end, relative to the orange end. */
+  dusk_level: number;
+  /** The sunset end to end, evenly spaced, at the current dusk level. */
+  palette: [number, number, number][];
   debug: boolean;
-  /** The setup check is walking the corners (tone per speaker, colors per bar). */
+  /** The setup check is walking the bars. */
   check: boolean;
-  /** Every lighting program by pool: in the random rotation or not, and which is on now. */
-  programs: Program[];
-  /** Every show track in manifest order: in the rotation or not, playing, queued for the next show. */
-  tracks: Track[];
-  /** The timing settings (`app.SETTINGS`), in order: what is in force and the config file's value. */
-  settings: Setting[];
-}
-
-/** `console.SettingStatus`: values are seconds. */
-export interface Setting {
-  name: string;
-  value: number;
-  default: number;
-}
-
-/** `console.TrackStatus`. */
-export interface Track {
-  /** The manifest entry's `file`: what the track actions take. */
-  id: string;
-  title: string;
-  /** The manifest's choice of lighting program; null for the rotation's. */
-  theme: string | null;
-  /** The manifest's or the measured tempo; null until measured. */
-  bpm: number | null;
-  enabled: boolean;
-  playing: boolean;
-  next: boolean;
-}
-
-/** `console.ProgramStatus`. */
-export interface Program {
-  name: string;
-  pool: "ambient" | "show";
-  enabled: boolean;
-  playing: boolean;
 }
 
 /** `console.CellPreview`: one cell, previewed as if the peak were 1.0. */

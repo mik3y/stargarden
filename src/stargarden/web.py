@@ -8,8 +8,7 @@ streams the console's status, fixture preview and log lines.
     GET  /ws[?since=N]           stream of {"type": "status" | "fixtures" | "log", ...} messages
     /                            the built app (`bun run build` in web/ → web/dist)
 
-Fixture frames go out at 10 Hz and status at 4 Hz (the TUI, which repaints in Python, runs slower);
-log lines go out as they arrive. Actions answer over HTTP so they can also be
+Fixture frames go out at 10 Hz and status at 2.5 Hz; log lines go out as they arrive. Actions answer over HTTP so they can also be
 scripted with curl. There is no authentication: the program runs on a private
 network in the field, and the console binds to localhost unless configured otherwise.
 """
@@ -62,7 +61,7 @@ class WebConsole:
 
     async def run(self) -> None:
         """Serve until cancelled. A port that cannot be bound is logged, not fatal:
-        the installation runs without its console."""
+        the lights run without their console."""
         runner = web.AppRunner(self.app(), access_log=None)
         await runner.setup()
         site = web.TCPSite(runner, self.cfg.host, self.cfg.port)

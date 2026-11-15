@@ -1,294 +1,115 @@
-# Stargarden
+# Stargarden: sunset
 
-Python program that runs the sound and lighting program for "Stargarden", an art installation.
+Python program that holds four DMX light bars in a permanent sunset.
 
-## Overview
+This branch repurposes Stargarden, the forest sound and light installation on `main`, for an event space. It keeps the lighting core and the web console. Audio, presence detection, lightning, the sunrise schedule and the terminal console are gone.
 
-Stargarden is a secluded spot in a nighttime forest, featuring a comfy platform for lying down, looking up at the stars, and taking in the atmosphere.
+## What it does
 
-As a visitor approaches Stargarden, they see trees encircling the platform which are uplighted with various multi-color DMX fixtures, slowly and even subtly changing against a coherent color theme. Ambient background forest sounds play on a sound system in the background, which encircles the space. Occasionally, a discrete sound (like a bird flapping or calling) is also played over the ambient selection, this sound taking advantage of the quad-channel sound output to make it appear to come from a specific space, or move around the space.
+All four bars show one color. That color drifts from a bright orange through red and magenta to a deep purple, dimming on the way, and then drifts back. The trip from orange to purple takes 15 minutes by default, and the trip back takes the same. Nothing ever jumps or goes black.
 
-Unbeknownst to the visitor, upon their arrival, a bluetooth motion sensor has fired and determined that the space is occupied. After a set amount of time (e.g. 10 minutes), something happens: The lights fade off briefly, and a new sound takes over: a musical track from a privately curated playlist of chill, beautiful tunes. The lighting program gets slightly more active and matches the music.
+The program starts the sunset as soon as it launches and runs until it is stopped. There is no schedule.
 
-As the track ends, the "normal" program returns. So long as presence is detected in the space, the program repeats after another delay, with a new track.
+## Controls
 
-## Deployment Status
+The web console is one page, sized for a phone.
 
-Stargarden had its inaugural deployment in the woods of Laytonville, CA, at Camp Tasty in October 2026. It ran for 3 days based entirely on this program as of commit 66981a0.
+* **The strip.** A handle sits on a strip running orange to purple. Dragging it moves the sunset and holds it there.
+* **Brighter and darker.** Each press steps the sunset 5% toward orange or purple and holds it there.
+* **Hold and resume.** Hold freezes the sunset where it is. Resume lets it run on from that place, in the direction it was heading.
+* **Restart from orange.** Runs the sunset from the start.
+* **Lights.** Fades the bars out or back up over three seconds. The sunset keeps its place while the lights are off.
+* **Orange to purple.** Minutes for one leg, as presets or a typed value. Changing it never moves the sunset.
+* **Brightness.** A ceiling on the whole look.
+* **Purple end.** How bright the purple end is relative to the orange end, 35% by default and never below 5%.
+* **Setup check.** Walks the bars in patch order with dim red, green, blue and white across each bar's columns. A bar lighting out of turn has the wrong DMX address. Red marks the bar's left end.
+* **Reset to defaults.** Puts back the config file's length and levels and sets the sunset running.
 
-It is unknown whether and when Stargarden might return.
+A manual move glides to its new place over a few seconds instead of cutting.
+
+The length, both levels and a held place persist across restarts and power cuts. They live in a small JSON file (`[state] path`, default `~/.local/state/stargarden/state.json`) outside the code directory, so deploys leave it alone. A running sunset starts from orange after a restart. The lights always come back on.
+
+Every control is a plain HTTP action, so `curl` works too.
+
+```
+curl -X POST localhost:7710/api/actions/set_position -d '{"position": 0.8}'
+curl -X POST localhost:7710/api/actions/set_paused -d '{"paused": false}'
+curl -X POST localhost:7710/api/actions/set_leg -d '{"seconds": 1800}'
+curl -X POST localhost:7710/api/actions/set_on -d '{"on": false}'
+```
+
+## Tuning the look
+
+The colors are the `STOPS` table at the top of `src/stargarden/sunset.py`. Each stop is a place from 0 to 1 and an RGB color, and the program blends between neighbors. Edit the table and deploy to change the palette. Brightness falls in a straight line from full at the orange end to the purple-end level.
 
 ## Design
 
-### States
+* **Single asyncio process.** A 30 Hz render loop asks the sunset for its color and level, scales it by the on/off fade and the brightness ceiling, and writes the universe to the DMX driver.
+* **The sunset is a small clock** (`sunset.py`). It tracks a phase from 0 to 2, where 0 to 1 is the way out and 1 to 2 the way back. Holding, resuming and changing the length rebase the phase, so the place never jumps.
+* **DMX out via Enttec Open DMX USB.** The widget is a bare FTDI UART, so a transmitter thread generates the DMX signal over `pyserial` and keeps the wire alive if the render loop stalls. The DMX USB Pro is also supported (`driver = "enttec_pro"`).
+* **Fixtures.** Four ADJ Jolt Bar FX2 in 38CH mode, addressed back to back from 1 (1, 39, 77, 115). The white LEDs stay dark. Fixture types and the patch are described in `docs/lighting-concepts.md`.
+* **Web console via aiohttp + React** (`web/`, built with bun, vite and Material UI). The program serves the built app, a small JSON API and a WebSocket stream. There is no login, so the Pi's network must stay private.
+* **Config is TOML.** `configs/production.toml` is the Pi's config and `configs/dev.toml` is a one-minute sunset for a laptop.
 
-The program, and the art itself, has the following major states:
-
-* `OFF`: All lighting and sound disabled. The daytime state.
-* `AMBIENT`: Ambient forest sounds and lighting; the default nighttime mode of operation.
-* `PRESENCE`: The space is occupied. Ambient programming continues, and a countdown to the next show begins.
-* `SHOW`: The music program. Lights fade off briefly, then a track from the curated playlist plays with a more active, music-matched lighting theme. On track end, the program returns to `PRESENCE` (restarting the countdown) or `AMBIENT` if the space has been vacated.
-
-Transitions:
-
-* `OFF ↔ AMBIENT`: driven by the sunset/sunrise scheduler, or manually from the console.
-* `AMBIENT → PRESENCE`: presence detector reports occupied.
-* `PRESENCE → SHOW`: occupancy has persisted for `show_delay` (default 10 minutes; subsequent shows use `show_repeat_delay`, default 15). Both are adjustable live from the console's config page, and the change persists.
-* `PRESENCE → AMBIENT`: presence detector reports the space definitively vacated.
-* Any state can be forced manually from the console; a manual state pins until released.
-
-### Architecture decisions
-
-* **Single asyncio process.** One Python process hosts all components; the TUI is just another component and can be disabled (`--headless`) when running under systemd. Audio rendering runs in the PortAudio callback thread; everything else is async tasks.
-* **Lighting is pure Python.** No external lighting desk. The looks we need — slow generative color drift, theme palettes, music-mode intensity, occasional lightning — are simple math over a handful of fixtures, and keeping them in-process keeps lighting locked to program state and audio events. We define our own small fixture profiles.
-* **DMX out via Enttec Open DMX USB.** The widget is a bare FTDI UART with no DMX engine, so we generate the signal ourselves: a transmitter thread streams the latest universe back to back over `pyserial` at 250 kbaud 8N2, producing each frame's break and mark-after-break with the port's break line. The render loop just swaps in new frames at ~30 Hz, and the wire stays alive (holding the last look) even if the loop stalls. The driver is behind a small interface; the DMX USB Pro (which has its own engine and takes snapshots over its framed protocol) is also supported, and other adapters (or sACN) can be added later.
-* **Audio via `sounddevice` (PortAudio) with our own mixer.** A numpy mixing engine renders N layers → per-layer gain → 4-speaker panning, at 48 kHz float32. Quad mode opens all of the device's outputs and places FL/FR/RL/RR on the channels in `audio.channel_map` (`[1, 2, 5, 6]` for a 7.1 USB card's front and surround pairs; `[1, 2, 3, 4]` for a 4-out interface). With `audio.device` blank the first device with enough outputs is used, USB devices first, on macOS and the Pi alike; with none present and `backend = "auto"`, the field folds to stereo on the default output so a laptop still plays. `scripts/audio_check.py` lists devices and puts a tone on each channel.
-* **Presence via `bleak` passive BLE scanning.** Two Shelly Blu Motion sensors (platform + walkway) broadcasting **unencrypted** BTHome v2 advertisements; no pairing, no bindkeys. Encryption support can be added later if needed.
-* **Two consoles over one control surface.** `console.py` defines what a console shows (a `Status` snapshot, the fixture preview, the log stream) and what it may do (named actions: force a state, fake a sensor, set a level…). The Textual TUI and the web console are both thin views over it, so a new control lands there once and each front end just draws it.
-* **TUI via Textual.** Logs, state display/override, per-layer volume and lighting peak, and (in dev) simulated fixtures and motion injection.
-* **Web console via aiohttp + React.** The same panels in a browser (`web/`: bun, vite, React, Material UI, dark), served by the program itself from a small JSON API and a WebSocket stream, so a laptop or phone on the site network can drive the installation without a terminal. A second page, config, holds the choices that persist: which lighting programs and which show tracks are in the random rotation, a queue for the next show's track and a way to start a show with a track at once, and the timing settings (the wait before the first show and between shows, and how often discretes and lightning come). No login: the Pi's network is private.
-* **Scheduling via `astral`.** Sunset/sunrise computed from configured lat/long drives `OFF ↔ AMBIENT`.
-* **Config is TOML** (`stdlib tomllib`): a program config plus an assets manifest.
-* **Fully offline in the field.** No network dependency at runtime. Deploys happen by visiting the Pi (rsync over direct link/hotspot). Because the sunset schedule depends on wall-clock time, the production Pi should carry an RTC module (e.g. DS3231); `fake-hwclock` alone drifts across power-offs.
-
-## Major Components
-
-### Conductor
-
-The state machine described above. Owns timers (`show_delay`, `show_repeat_delay`), consumes presence and scheduler events, and issues coordinated commands to the audio and lighting engines (e.g. "fade lights out, then start track X with theme Y").
-
-### Audio engine
-
-Drives a single PortAudio output stream and mixes three layers:
-
-* **Bed**: looping ambient forest recordings. Beds are ordinary stereo files; the engine spreads them across the quad field (decorrelated front/rear with slow drift). Bed changes crossfade.
-* **Discretes**: mono one-shot sounds (bird calls, wing flaps) fired on a randomized schedule (a uniform wait of `discretes.min_interval_s` to `max_interval_s`, 40 to 90 seconds by default: about one a minute; adjustable live from the console's config page, and the change persists), each given a position or a motion trajectory and rendered with equal-power panning across the four speakers. Preloaded into memory.
-* **Music**: the show track, played as dual stereo: both left speakers carry the left channel and both right speakers the right, at equal level, so a listener at the centre hears the mix's width across the space (the beds' mirrored rear pair would fold it toward a phantom overhead). While music plays, the bed ducks to a configured low level (the forest never fully disappears) and discretes are suppressed; both return when the track ends.
-
-Files are decoded with `soundfile` (WAV/FLAC/OGG/MP3). Beds and music are streamed from disk by a decode thread feeding ring buffers, so the audio callback never touches the filesystem. Per-layer gain is adjustable live from the console; overall peak volume is managed by the external amplifier.
-
-### Lighting engine
-
-A 30 Hz render loop composes, per fixture, a base **theme** (slow color drift within a palette, per-fixture phase offsets so the trees don't move in unison), scaled by the program's master fade and a standing **peak** ceiling (`lighting.peak`, default 1.0; nudged live from the console for softer light on real fixtures), with optional **overlays** (lightning strobe, show-mode intensity) applied on top and exempt from the peak, then writes the universe to the DMX driver.
-
-* **Fixture types** with their **DMX modes** (built in: `generic` washes, the ADJ Jolt Bar FX2) and the **patch** (fixture → type, mode, DMX address) are declared in config. A mode exposes **cells** — the fixture's light-emitting sub-units with positions — and channels carrying GDTF-named attributes; the engine sets per-cell state and the renderer resolves shared (master) dimmers and strobes. Vocabulary: `docs/lighting-concepts.md`.
-* **Themes** are small Python classes registered by name, sampled per cell at a `Spot` (fixture, grid column and row). Ambient mode picks from a pool and rotates every `ambient_theme_rotation_s`, never repeating the last: `ember-waves`, waves of amber and orange travelling along the bars, every other column dark; `green-tide`, a broad swell of green washing clockwise around the ring of columns, easing to a stop and washing back. Shows pick from theirs per track: `orbit`, a blue/purple column of light circling the room clockwise, then back, then an odd/even dance on a beat; `violet-storm`, a few violet islands swelling in and out of the dark with white flashes on the beat, one column at a time and now and then the whole ring; `starfield`, a faint deep-blue sky with ice-white stars flaring out of it and dying back, a scatter on each beat; `embers`, one or two amber coals at a time glowing up out of total dark and fading; `slow-rain`, cool drops lighting a top cell and then the cell under it a beat later, sparse, with dry spells; `breath`, the whole ring rising and sinking together in a low teal on a ten-second cycle, one column lingering on each exhale; `moths`, up to three points of warm white wandering column to column, stepping on some beats and sitting still on the rest. The show programs leave most of the ring dark most of the time, so what is lit reads against it. A `Spot` also carries the column's place on the ring around the space (fixtures ordered by the bearing of their `position`, columns left to right), which is what the chase follows. A track in the manifest may still name any theme.
-* **Overlays** rewrite the per-cell frames on top of the theme while active; lightning is the first.
-* **Tempo.** A show theme is written at a tempo (`orbit` at 120 BPM: a dance swap per beat) and the engine runs its clock at the track's tempo over that, so the program breathes with the music. Tempos are measured by the program itself (`audio/tempo.py`): on launch, a background thread takes each track it has not seen, downmixes it, builds an onset envelope from spectral flux, and reads the beat off the envelope's autocorrelation, folded into 70–140 BPM (a 160 BPM track paces the lights at 80). Results go to `bpm.json` next to the console state file, outside the code and assets directories, keyed by the file's path, size and mtime, so `just deploy` neither loses nor invalidates them; a replaced file is measured again. A track the program has not got to yet runs the theme at its own tempo. When the measurement is wrong, `bpm = 96` on the track's manifest entry wins; `scripts/bpm.py` prints what the program hears.
-* Drivers: `enttec_open` (Enttec Open DMX USB), `enttec_pro` (Enttec DMX USB Pro), `console` (virtual fixture swatches in the TUI), `null`.
-
-### Lightning
-
-A layer of its own, independent of the themes (`lightning.py`). Strikes arrive at random — about one per `mean_interval_s`, never closer than `min_interval_s` (200 and 150 seconds by default: every three to five minutes or so; both adjustable live from the console's config page, and the change persists), and only in the configured program states (`PRESENCE` and `SHOW` by default, so an empty forest stays calm). Each strike is composed fresh from the RNG:
-
-* an **origin**: one of the fixtures, never the same tree twice in a row;
-* an optional faint **leader** flicker, then the **punch**: one long solid flash at the origin (120–220 ms, white cells at full), followed within a few tens of milliseconds by 1–3 short **return strokes** (30–70 ms, usually two or three, nearly as bright, sometimes with the hardware strobe engaged for crackle);
-* a **ripple**: every other fixture repeats each flash later and dimmer with distance (fixtures without white cells push their color toward white instead), then a short afterglow at the origin;
-* **thunder** after 0.3–2.5 s, one of the manifest's `[[thunder]]` sounds (never the same one twice in a row), louder for short delays, panned to the origin and rolling slightly toward the center of the space.
-
-Sound and light land in the same place because fixtures and speakers share one coordinate space: fixture `position` and `audio.speakers` are both points on the compass square (x −1 left … 1 right, y −1 rear … 1 front). Speaker positions default to the four corners in output order; swapping cables means swapping two entries.
-
-### Presence detection
-
-A passive BLE scanner parses BTHome v2 advertisements from the two Shelly Blu Motion sensors and feeds a latching occupancy model:
-
-* Motion at the **platform** sensor ⇒ occupied immediately.
-* Occupancy is held while *any* sensor reports motion within `vacancy_timeout` (default 15 minutes) — a still, stargazing visitor won't retrigger PIR constantly, so absence of events is not evidence of absence until the timeout lapses.
-* The **walkway** sensor refreshes the hold and marks likely arrival; available to future heuristics (e.g. pre-warming, distinguishing pass-throughs).
-
-Sensor MAC addresses are configured; sensors must have BLE encryption disabled in the Shelly app.
-
-### Scheduler
-
-Computes today's dusk/dawn from configured coordinates and requests `OFF ↔ AMBIENT` transitions, with configurable offsets (e.g. lights from 20 min after sunset until 30 min before sunrise). Manual console overrides always win.
-
-### Consoles
-
-Both consoles show the same things — recent log lines, current state and timers, presence sensor status, virtual fixture swatches, per-layer volume and the lighting peak — and offer the same controls: force/release a state, override day/night, fake platform/walkway motion, fire a lightning strike or a discrete sound, step to the next lighting program, run the setup check, toggle debug logging, nudge levels; the web console also checks programs in and out of the random rotation, plays one by name, and resets to the config defaults. They share one model, `console.py`:
-
-* `Status` is the snapshot a status panel renders; `Console.fixtures()` is the swatch preview; `LogBuffer` numbers log records so every console reads from where it left off.
-* `Console` methods marked `@action` are the controls, callable by name (`Console.act("force", {"state": "show"})`) with plain JSON-ish arguments, so the web API needs no per-action code.
-
-**TUI** (`tui/app.py`): a Textual app; keys are listed under Development.
-
-**Web** (`web.py` and `web/`): the program serves the built React app and its API on `web.port` (7710 by default, localhost only unless `web.host` says otherwise). `GET /api/status`, `GET /api/fixtures`, `GET /api/log?since=N`, `POST /api/actions/<name>` (JSON body = keyword arguments) and a WebSocket at `/ws` streaming `status` (4 Hz), `fixtures` (10 Hz) and `log` messages. The keyboard shortcuts match the TUI. Actions being plain HTTP, `curl -X POST localhost:7710/api/actions/lightning` works too.
-
-**Adding a control** means: a field on `Status` or an `@action` on `Console` in `console.py`; a key/panel line in `tui/app.py`; the matching type in `web/src/lib/api.ts` and a button or line in `web/src/components/`. Tests for the model go in `tests/test_console.py`.
-
-## Hardware
-
-Production target:
-
-* Raspberry Pi (Raspberry Pi OS), with RTC module for offline timekeeping
-* Enttec Open DMX USB (a DMX USB Pro also works, with `driver = "enttec_pro"`)
-* Class-compliant USB audio interface with ≥4 outputs (a 7.1 USB card works: front pair + surround pair), into external amplification (4 speakers encircling the space)
-* 4× ADJ Jolt Bar FX2, one per corner, addressed back to back from 1 (38 channels each: 1, 39, 77, 115). The type is built in with all 17 of its DMX modes (`type = "jolt_bar_fx2"`, `mode = "38ch"`…); we run it in **38CH**: 4 RGB columns rendered as a gradient, and the white LEDs as their own cells with a separate dimmer and strobe, which is what lightning flashes. Reference material for it lives in `docs/fixtures/`. Generic RGB/RGBW washes are also supported (`type = "generic"`).
-* 2× Shelly Blu Motion (platform, walkway), unencrypted BTHome broadcasts
-
-Development target: macOS laptop, no hardware — stereo audio out, simulated fixtures and sensors.
-
-## Configuration & assets
-
-`config.toml` holds machine/site specifics: audio device, channel mode and speaker positions, DMX driver and serial port, fixture patch, sensor MACs, lat/long and schedule offsets, timers, duck levels, lightning odds.
-
-Audio assets live **outside the repo** in a configurable assets directory (deployed via rsync; the repo carries only tiny test sounds for development):
+API:
 
 ```
-assets/
-  manifest.toml     # beds, discrete pools (weights, spatial behavior), music playlist
-  beds/             # stereo ambience loops
-  discretes/        # mono one-shots
-  discretes/thunder/  # thunder for lightning strikes
-  music/            # curated show tracks
+GET  /api/status             the status snapshot
+GET  /api/fixtures           the fixture preview
+GET  /api/log?since=N        retained log lines numbered N and up
+POST /api/actions/<name>     run a console action; the JSON body holds its keyword arguments
+GET  /ws                     stream of status, fixture and log messages
 ```
 
-Each music playlist entry may name a specific show lighting theme; otherwise one is chosen at random from the show-theme pool.
-
-Settings changed from a console persist: the audio levels, the lighting peak,
-and which programs are out of the random rotation are written to a small JSON
-file (`[state] path`, default `~/.local/state/stargarden/state.json`, outside
-the code directory so deploys leave it alone) and applied over the config on
-the next launch. Only changes are stored, and disabled programs rather than
-enabled ones, so a program added later joins the rotation by itself. "Reset to
-defaults" in the web console (or deleting the file) returns to the config.
+Actions are the `@action` methods on `Console` in `console.py`.
 
 ## Development
 
 ```
 uv sync                                   # Python 3.14 + deps into .venv
-uv run python scripts/make_test_assets.py # synthesize stand-in sounds into assets-dev/
-uv run stargarden                         # console UI with configs/dev.toml
-uv run stargarden --headless              # logs to stderr instead of the console
+uv run stargarden                         # runs configs/dev.toml, logs to stderr
 uv run pytest
 
 cd web && bun install && bun run build    # the web console, served at http://127.0.0.1:7710/
 ```
 
-The web console is an ordinary vite project in `web/`: `bun run build` writes
-`web/dist`, which the running program serves (until it is built, the page says
-so). While working on it, `bun start` runs vite on :7711 with hot reload,
-proxying `/api` and `/ws` to a program running on :7710. `bun run typecheck`
-and `bun run lint` (biome) keep it honest. The same keys work in the browser
-(other than `tab`/`[`/`]`: the levels are sliders there).
+The dev config sends DMX through an Enttec Open DMX USB if one is plugged in. Without one the program logs that once, keeps retrying, and the console's fixture preview still shows the look. Set `driver = "console"` to skip the hardware entirely.
 
-The dev config selects quad output on a 7.1 USB card if one is attached (else
-stereo on the default output, or a silent clock if PortAudio is missing), DMX out through an Enttec Open DMX USB if one is plugged in (the
-console shows virtual fixtures regardless; set `driver = "console"` to skip the
-hardware entirely), simulated presence, and a schedule override so it is always
-"night". Console keys:
-
-| key | action |
-|---|---|
-| `m` / `w` | fake platform / walkway motion |
-| `0` `1` `2` `3` | force OFF / AMBIENT / PRESENCE / SHOW |
-| `r` | release the forced state |
-| `n` | toggle day/night override |
-| `l` / `s` | trigger a lightning strike / a discrete sound |
-| `t` | next lighting program in the current mode's pool, in a fixed order |
-| `c` | toggle the setup check: a tone on speaker N and dim red/green/blue/white left to right on bar N, corner by corner |
-| `d` | toggle DEBUG-level logging in the log pane |
-| `tab`, `[`, `]` | select an audio layer or the lighting peak, nudge it |
-| `q` | quit |
-
-Show timers are seconds in `configs/dev.toml` (`show_delay_s = 45`), so a full
-visit can be watched in a couple of minutes: press `m`, wait, and the lights
-drop out before a track starts.
-
-### Code layout
+While working on the web console, `bun start` runs vite on :7711 with hot reload and proxies `/api` and `/ws` to a program on :7710. `bun run typecheck` and `bun run lint` (biome) check it.
 
 ```
 src/stargarden/
   __init__.py     CLI entry point (`stargarden`)
-  app.py          runtime wiring: transitions → audio/lighting commands
-  conductor.py    the OFF/AMBIENT/PRESENCE/SHOW state machine
+  app.py          runtime wiring, and the console's changes persisted
+  sunset.py       the palette and the there-and-back clock
   config.py       config.toml → dataclasses
-  manifest.py     assets/manifest.toml → beds, discretes, music
-  scheduler.py    sunset/sunrise via astral
-  lightning.py    strike composition, scheduling, thunder
-  console.py      the control surface shared by the consoles: Status, fixture preview, log buffer, actions
-  web.py          the web console's server: JSON API, WebSocket stream, the built app
-  presence/       occupancy model, BTHome parser, bleak scanner
-  lighting/       fixtures & patch, themes, render engine, DMX drivers
-  audio/          decoders, quad panner, streaming sources, mixer, backends, engine
-  tui/            Textual console
-web/              the web console (bun + vite + React + Material UI); builds to web/dist
-configs/          dev.toml (simulation) and production.toml (Pi template)
-docs/             lighting-concepts.md (vocabulary appendix), fixtures/ (reference files)
-scripts/          make_test_assets.py
-tests/            pytest; `test_app.py` runs a whole simulated visit
+  state.py        the persisted overrides file
+  check.py        the setup check
+  console.py      what the console shows and may do
+  web.py          the console's server
+  lighting/       fixtures & patch, render engine, DMX drivers
+web/              the web console
+configs/          dev.toml and production.toml
+deploy/           Pi setup scripts and systemd units
 ```
-
-Fixture types live in `lighting/fixtures.py` (see `docs/lighting-concepts.md`
-for the vocabulary). A simple one-cell fixture can also be declared in config as
-a list of channel roles under `[lighting.profiles.<name>]` (`red`, `green`,
-`blue`, `white`, `dimmer`, `dimmer_fine`, `strobe`; anything else is parked at 0)
-and patched with `type = "<name>"`.
-
-Pure logic (state machine, occupancy, panning, themes, patch rendering) takes an
-injected clock and is unit-tested; hardware adapters (`sounddevice`, `bleak`,
-`pyserial`) are imported lazily so a machine without them still runs in
-simulation.
 
 ## Deployment
 
-The `justfile` drives a Pi over ssh; `just` lists the recipes. The host is
-`stargarden` (`just host=other deploy`, or `STARGARDEN_HOST`), and the username
-and key come from `~/.ssh/config`. The Pi needs a network connection for the
-first `prep` (apt, uv, Python) and none afterwards.
+The `justfile` drives a Pi over ssh; `just` lists the recipes. The host is `stargarden` (`just host=other deploy`, or `STARGARDEN_HOST`), and the username and key come from `~/.ssh/config`. The Pi needs a network connection for the first `prep` (apt, uv, Python) and none afterwards.
 
 ```
 just prep      # a fresh Pi: packages, uv + Python 3.14, groups, the boot service; then a deploy
-just deploy    # build web/, rsync code + assets, uv sync on the Pi, restart if running
+just deploy    # build web/, rsync the code, uv sync on the Pi, restart if running
 just attach    # the program's log stream in its screen session (detach with C-a d)
 just status | logs | start | stop | restart | ssh
 ```
 
-Fill in `configs/production.toml` (coordinates, sensor MACs, the DMX patch, the
-audio device) on the laptop and commit it; the Pi runs it as is. Assets rsync
-from `assets-dev/` by default (`STARGARDEN_ASSETS=~/stargarden-assets just
-deploy` for the real library) into `~/stargarden-assets` on the Pi, which is
-`assets.root`. The code lands in `~/stargarden` with `web/dist` built on the
-laptop, since the Pi has no node; the web console is then at `http://<pi>/`
-(an nftables rule, `deploy/port80.nft`, sends port 80 to 7710; no login, so the
-Pi's network stays private).
+A Pi that last ran `main` needs only `just deploy` from this branch. `uv sync` on the Pi needs a network the first time, because the lock file changed. The old state file is read. Its brightness peak carries over and the forest settings in it are ignored.
 
-The service (`deploy/stargarden.service`, installed by `deploy/prep.sh`) runs
-the program headless inside a detached `screen` session owned by the ssh user,
-so `screen -r stargarden` shows its log stream and the web console is the UI
-(the TUI's repaints compete with the audio callback for the GIL on a Pi 4 and
-cause underruns, so it stays a laptop tool). systemd owns the session and
-restarts it if the program exits; `just stop` stops it. It stops with SIGINT,
-the program's clean shutdown. Fit an RTC module so the sunset schedule
-survives power cycles offline.
+The code lands in `~/stargarden` with `web/dist` built on the laptop, since the Pi has no node. The web console is then at `http://<pi>/` (an nftables rule, `deploy/port80.nft`, sends port 80 to 7710).
 
-In the field the Pi makes its own network. `stargarden-wifi.service`
-(`deploy/wifi-watch.sh`) watches the Wi-Fi: after 60 seconds without a
-connection it raises an access point, SSID `stargarden`, password `star4321`,
-with the Pi at `10.42.0.1`, so a laptop or phone can join it and open
-`http://10.42.0.1/`. While nobody is on the access point it tries the
-known networks again every ten minutes; with someone connected it stays up.
-`just prep` creates the NetworkManager profile (`AP_SSID` and `AP_PSK` in the
-environment override the defaults) and installs the service; `just deploy`
-refreshes it when the scripts change.
+The service (`deploy/stargarden.service`) runs the program inside a detached `screen` session owned by the ssh user. systemd restarts it if the program exits. It stops with SIGINT, which blacks the bars out on the way down.
 
-To check the wiring on site, toggle the **setup check** from either console
-(`c`, or the switch under actions). It pins the program to OFF and walks the
-corners in a loop: a soft tone on output 1 and a dim red, green, blue, then
-white on the first bar in the patch (its white cells too), then output and bar
-2, 3, 4. A tone from the wrong direction means two speaker cables are swapped
-(reorder `audio.speakers`, or `channel_map` if a whole pair is on the wrong
-outputs); a bar lighting out of turn has the wrong DMX address. The tones rise
-in pitch by corner, so the ear can count along. Toggling it off hands the
-program back.
+In the field the Pi makes its own network. `stargarden-wifi.service` (`deploy/wifi-watch.sh`) watches the Wi-Fi. After 60 seconds without a connection it raises an access point, SSID `stargarden`, password `star4321`, with the Pi at `10.42.0.1`. Join it from a phone and open `http://10.42.0.1/`.
 
-The Open DMX USB appears as a plain FTDI serial port (`ftdi_sio`, no extra
-driver); the service user needs to be in the `dialout` group, and
-`lighting.port = "auto"` finds it (pin `/dev/serial/by-id/usb-ENTTEC_...` if
-several FTDI devices are attached). A widget that is missing or unplugged is
-logged once and retried every couple of seconds, so the rest of the program
-keeps running.
-
-## Open questions
-
-* Theme design itself — palettes, drift behavior, show looks — will be iterated with the fixtures in hand.
-* Whether the walkway sensor should trigger any audible/visible "greeting" on approach.
+The Open DMX USB appears as a plain FTDI serial port. The service user needs to be in the `dialout` group, and `lighting.port = "auto"` finds the widget.

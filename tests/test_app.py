@@ -1,117 +1,89 @@
-"""End-to-end: the runtime wires up in simulation and a show plays through."""
+"""The runtime: console changes take effect, persist, and come back on the next launch."""
 
 import asyncio
-from pathlib import Path
+import json
 
-import numpy as np
 import pytest
 
 from stargarden.app import Stargarden
-from stargarden.conductor import State
-from stargarden.config import Config, SensorRole, load_config
-from stargarden.manifest import load_manifest
+from stargarden.config import Config
+from stargarden.console import ActionError, Console, install_log_buffer
 
 
-def make_config(tmp_path: Path, assets: Path) -> Config:
-    path = tmp_path / "cfg.toml"
-    path.write_text(
-        f"""
-[schedule]
-enabled = false
-[state]
-path = "{tmp_path}/state.json"
-[timers]
-show_delay_s = 0.3
-show_repeat_delay_s = 0.3
-lights_out_s = 0.1
-[audio]
-backend = "null"
-mode = "stereo"
-blocksize = 256
-duck_fade_s = 0.1
-bed_crossfade_s = 0.1
-[presence]
-vacancy_timeout_s = 0.8
-[lighting]
-driver = "console"
-fps = 60
-[[lighting.fixtures]]
-name = "a"
-type = "generic"
-mode = "dim_rgbw"
-address = 1
-[web]
-enabled = false
-[assets]
-root = "{assets}"
-"""
-    )
-    return load_config(path)
+def lit(program: Stargarden) -> float:
+    """The first fixture's brightness, rendered now."""
+    return program.lighting.frame(program.lighting._clock())[0]["cell"].intensity
 
 
 @pytest.mark.asyncio
-async def test_full_visit(tmp_path: Path, assets: Path) -> None:
-    config = make_config(tmp_path, assets)
-    program = Stargarden(config, load_manifest(config.assets_root), seed=1)
-    states: list[State] = []
-    program.conductor.add_listener(lambda old, new: states.append(new))
+async def test_lights_come_up_and_switch_off(config: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("stargarden.app.FADE_S", 0.05)
+    program = Stargarden(config)
+    console = Console(program, install_log_buffer("INFO"))
 
-    async def scenario() -> None:
-        await asyncio.sleep(0.3)
-        assert program.conductor.state is State.AMBIENT
-        assert program.audio.ambient_running
-        program.simulate_motion(SensorRole.PLATFORM)
-        assert program.conductor.state is State.PRESENCE
-        await asyncio.sleep(0.6)
-        assert program.conductor.state is State.SHOW
-        # the track is ~0.1s at 48k; wait for it to finish, then vacancy to lapse
-        for _ in range(60):
-            await asyncio.sleep(0.05)
-            if program.conductor.state is State.AMBIENT:
-                break
-        assert program.audio.current_music is None
-        assert states[:3] == [State.AMBIENT, State.PRESENCE, State.SHOW]
-        assert State.PRESENCE in states[3:] or states[3] is State.AMBIENT
-        assert program.conductor.state is State.AMBIENT
-        await asyncio.sleep(0.2)
-        assert program.lighting.driver.frame[0] > 0  # dimmer coming back up
-        program.shutdown()
+    async def drive() -> None:
+        await asyncio.sleep(0.15)
+        assert console.status().on and lit(program) == pytest.approx(1.0, abs=0.01)  # up by itself at the orange end
+        assert max(console.fixtures()[0].rows[0][0].rgb) == 255
+        assert console.act("set_on", {"on": False}) is False
+        await asyncio.sleep(0.15)
+        assert lit(program) == 0.0 and console.status().master == 0.0
+        assert console.act("toggle_on") is True
+        await asyncio.sleep(0.15)
+        assert lit(program) > 0.9
 
-    await program.run(foreground=scenario())
+    await program.run(foreground=drive())
 
 
-@pytest.mark.asyncio
-async def test_show_paces_the_lights_to_the_track(tmp_path: Path) -> None:
-    from conftest import write_wav
+def test_changes_persist_and_apply_on_the_next_launch(config: Config, clock) -> None:
+    program = Stargarden(config, clock)
+    console = Console(program, install_log_buffer("INFO"))
+    state = config.state.path
+    assert not state.exists()
+    assert console.act("set_leg", {"seconds": 1800}) == 1800.0
+    assert console.act("set_peak", {"value": 0.6}) == 0.6
+    assert console.act("set_dusk_level", {"value": 0.2}) == 0.2
+    assert console.act("set_position", {"position": 0.75}) == 0.75
+    assert json.loads(state.read_text()) == {"peak": 0.6, "leg_s": 1800.0, "dusk_level": 0.2, "hold": 0.75}
 
-    root = tmp_path / "assets"
-    ramp = np.linspace(-0.5, 0.5, 48000 * 3, dtype=np.float32)
-    write_wav(root / "beds" / "bed.wav", np.stack([ramp[:4800], -ramp[:4800]], axis=1), 48000)
-    write_wav(root / "music" / "song.wav", np.stack([ramp, ramp], axis=1), 48000)
-    (root / "manifest.toml").write_text(
-        """
-[[beds]]
-file = "beds/bed.wav"
-[[music]]
-file = "music/song.wav"
-title = "Song"
-theme = "orbit"
-bpm = 96
-"""
-    )
-    config = make_config(tmp_path, root)
-    program = Stargarden(config, load_manifest(config.assets_root), seed=1)
-    assert program.tempo.cache.path == tmp_path / "bpm.json"  # next to the state file, outside the code and assets
+    again = Stargarden(config, clock)  # the same config file, a fresh run
+    status = Console(again, install_log_buffer("INFO")).status()
+    assert (status.leg_s, status.peak, status.dusk_level) == (1800.0, 0.6, 0.2)
+    assert status.paused and status.position == 0.75 and status.shown == 0.75  # held where it was, shown at once
 
-    async def scenario() -> None:
-        await asyncio.sleep(0.3)
-        program.conductor.force(State.SHOW)
-        await asyncio.sleep(1.5)  # lights out, then the track starts
-        assert program.audio.current_music is not None
-        assert program.lighting.theme.name == "orbit" and program.lighting.tempo == 96
-        program.conductor.force(State.AMBIENT)
-        await asyncio.sleep(0.1)
-        assert program.lighting.tempo is None
-        program.shutdown()
+    console.act("set_paused", {"paused": False})
+    assert "hold" not in json.loads(state.read_text())  # a running sunset starts from orange next time
+    console.act("set_leg", {"seconds": config.sunset.leg_s})
+    assert "leg_s" not in json.loads(state.read_text())  # back at the default: nothing to store
+    console.act("reset_defaults")
+    assert not state.exists()
+    assert (program.sunset.leg_s, program.sunset.dusk_level, program.lighting.peak) == (100.0, 0.4, 1.0)
 
-    await program.run(foreground=scenario())
+
+def test_a_saved_setting_that_no_longer_fits_is_dropped(config: Config, clock) -> None:
+    config.state.path.write_text(json.dumps({"leg_s": 1, "peak": 0.5}))
+    program = Stargarden(config, clock)
+    assert program.sunset.leg_s == 100.0 and program.lighting.peak == 1.0
+
+
+def test_manual_moves_hold_and_resume_runs_on(config: Config, clock) -> None:
+    program = Stargarden(config, clock)
+    console = Console(program, install_log_buffer("INFO"))
+    clock.advance(10)
+    assert console.act("nudge") == pytest.approx(0.15) and console.status().paused  # one step darker, and held there
+    assert console.act("nudge", {"steps": -2}) == pytest.approx(0.05)
+    clock.advance(1000)
+    assert console.status().position == pytest.approx(0.05)
+    assert console.act("toggle_paused") is False
+    clock.advance(10)
+    assert console.status().position == pytest.approx(0.15) and console.status().direction == "darkening"
+    assert console.act("toggle_paused") is True
+    console.act("restart")
+    status = console.status()
+    assert status.position == 0.0 and not status.paused and status.leg_remaining_s == 100.0
+    with pytest.raises(ActionError, match="set_leg"):
+        console.act("set_leg", {"seconds": 1})
+    with pytest.raises(ActionError):
+        console.act("set_position", {"position": "dusk"})
+    with pytest.raises(ActionError):
+        console.act("set_on", {"on": "yes"})

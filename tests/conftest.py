@@ -1,9 +1,9 @@
 import logging
-import wave
 from pathlib import Path
 
-import numpy as np
 import pytest
+
+from stargarden.config import Config, load_config
 
 
 @pytest.fixture(autouse=True)
@@ -31,38 +31,27 @@ def clock() -> FakeClock:
     return FakeClock()
 
 
-def write_wav(path: Path, data: np.ndarray, rate: int) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pcm = (np.clip(data, -1, 1) * 32767).astype("<i2")
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(pcm.shape[1])
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(pcm.tobytes())
-    return path
-
-
 @pytest.fixture
-def assets(tmp_path: Path) -> Path:
-    """A tiny assets directory with one bed, one discrete, and one track."""
-    root = tmp_path / "assets"
-    ramp = np.linspace(-0.5, 0.5, 4800, dtype=np.float32)
-    write_wav(root / "beds" / "bed.wav", np.stack([ramp, -ramp], axis=1), 48000)
-    write_wav(root / "discretes" / "ping.wav", ramp[:, None], 48000)
-    write_wav(root / "music" / "song.wav", np.stack([ramp, ramp], axis=1), 44100)
-    (root / "manifest.toml").write_text(
-        """
-[[beds]]
-file = "beds/bed.wav"
-[[discretes]]
-file = "discretes/ping.wav"
-motion = "flyby"
-[[music]]
-file = "music/song.wav"
-title = "Song"
-theme = "orbit"
-[[thunder]]
-file = "discretes/ping.wav"
+def config(tmp_path: Path) -> Config:
+    """One generic wash on the console driver, a 100 s sunset, and a state file in the test's own directory."""
+    path = tmp_path / "cfg.toml"
+    path.write_text(
+        f"""
+[state]
+path = "{tmp_path}/state.json"
+[sunset]
+leg_s = 100
+dusk_level = 0.4
+[lighting]
+driver = "console"
+fps = 60
+[[lighting.fixtures]]
+name = "a"
+type = "generic"
+mode = "dim_rgbw"
+address = 1
+[web]
+enabled = false
 """
     )
-    return root
+    return load_config(path)

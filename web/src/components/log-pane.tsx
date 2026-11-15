@@ -18,7 +18,7 @@ interface LevelStyle {
   loud: boolean;
 }
 
-// Badge text and style per level, as in the TUI.
+// Badge text and style per level.
 const LEVEL_STYLES: Record<string, LevelStyle> = {
   DEBUG: { badge: "DEBUG", color: "text.disabled", loud: false },
   INFO: { badge: "INFO ", color: "success.main", loud: false },
@@ -128,6 +128,7 @@ const LogPane = ({ lines, debug }: { lines: LogLine[]; debug: boolean }) => {
                 component="span"
                 title={line.name}
                 sx={{
+                  display: { xs: "none", sm: "block" },
                   color: "secondary.light",
                   flexShrink: 0,
                   width: "11em",

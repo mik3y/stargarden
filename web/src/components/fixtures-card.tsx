@@ -15,7 +15,7 @@ const Cell = ({ cell }: { cell: CellPreview }) => (
       height: ROW_HEIGHT,
       borderRadius: 0.5,
       bgcolor: `rgb(${cell.rgb.join(",")})`,
-      // The hardware strobe is engaged: a dashed rim, like the TUI's hatched swatch.
+      // The hardware strobe is engaged: a dashed rim.
       outline: cell.strobe ? "1px dashed rgba(255,255,255,0.7)" : "none",
       outlineOffset: -1,
       transition: "background-color 80ms linear",
@@ -25,7 +25,7 @@ const Cell = ({ cell }: { cell: CellPreview }) => (
 
 /**
  * The virtual fixtures: each fixture's color cells as swatches, row by row,
- * with its white cells (what lightning flashes) alongside.
+ * with its white cells alongside.
  */
 const FixturesCard = ({ fixtures }: { fixtures: FixturePreview[] }) => (
   <Card>

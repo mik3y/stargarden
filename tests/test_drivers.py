@@ -1,10 +1,13 @@
+import asyncio
 import time
 
 import pytest
 
-from stargarden.config import LightingConfig
+from stargarden.config import FixtureConfig, LightingConfig
+from stargarden.lighting import LightingEngine, Patch
 from stargarden.lighting.drivers import ConsoleDriver, EnttecOpenDriver, EnttecProDriver, NullDriver, make_driver
 from stargarden.lighting.fixtures import UNIVERSE_SIZE
+from stargarden.sunset import Sunset
 
 
 class FakeSerial:
@@ -195,15 +198,8 @@ def test_open_dmx_reopens_after_serial_error(fake_serial: type[FakeSerial], monk
 
 @pytest.mark.asyncio
 async def test_engine_shutdown_leaves_the_wire_dark(fake_serial: type[FakeSerial]) -> None:
-    import asyncio
-    import random
-
-    from stargarden.config import FixtureConfig
-    from stargarden.lighting import LightingEngine, Patch
-    from stargarden.lighting.themes import get_theme
-
     cfg = LightingConfig(driver="enttec_open", fixtures=(FixtureConfig("bar", "jolt_bar_fx2", 1, "38ch"),))
-    engine = LightingEngine(Patch.from_config(cfg), EnttecOpenDriver("/dev/ttyUSB9"), cfg, get_theme("ember-waves"), random.Random(1))
+    engine = LightingEngine(Patch.from_config(cfg), EnttecOpenDriver("/dev/ttyUSB9"), cfg, Sunset().look)
     engine.fade_master(1.0, 0.0)
     task = asyncio.get_running_loop().create_task(engine.run())
     await asyncio.sleep(0.2)

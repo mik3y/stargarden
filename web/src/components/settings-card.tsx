@@ -1,82 +1,34 @@
+import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import InputAdornment from "@mui/material/InputAdornment";
+import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
+import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import { useEffect, useState } from "react";
 
-import type { Act, Setting } from "@/lib/api";
+import LevelSlider from "@/components/level-slider";
+import type { Act, Status } from "@/lib/api";
 
-/** How a setting is shown: its label and the unit its field works in (the server takes seconds). */
-interface Field {
-  group: string;
-  label: string;
-  unit: "s" | "min";
-}
-
-const FIELDS: Record<string, Field> = {
-  "timers.show_delay_s": { group: "shows", label: "first after", unit: "min" },
-  "timers.show_repeat_delay_s": {
-    group: "shows",
-    label: "then every",
-    unit: "min",
-  },
-  "discretes.min_interval_s": {
-    group: "discretes",
-    label: "at least",
-    unit: "s",
-  },
-  "discretes.max_interval_s": {
-    group: "discretes",
-    label: "at most",
-    unit: "s",
-  },
-  "lightning.mean_interval_s": {
-    group: "lightning",
-    label: "about every",
-    unit: "min",
-  },
-  "lightning.min_interval_s": {
-    group: "lightning",
-    label: "never closer than",
-    unit: "min",
-  },
-};
-
-const HINTS: Record<string, string> = {
-  shows:
-    "how long the space stays occupied before the first show, and between one show and the next",
-  discretes:
-    "a bird call or wing flap, this long after the last, while ambience plays",
-  lightning:
-    "strikes come at random this far apart on average, but never closer than the floor",
-};
-
-const toUnit = (seconds: number, unit: Field["unit"]): number =>
-  unit === "min" ? seconds / 60 : seconds;
-const toSeconds = (value: number, unit: Field["unit"]): number =>
-  unit === "min" ? value * 60 : value;
+/** Minutes from orange to purple offered as one-tap choices. */
+const PRESETS_MIN = [5, 10, 15, 30, 60];
 
 /** Enough digits to read, no trailing noise. */
 const fmt = (value: number): string =>
   Number.isInteger(value) ? String(value) : value.toFixed(1);
 
 /**
- * One setting as a number field: edits are sent when the field is left or
- * Enter is pressed, and the stream's value fills it in between. The config
- * file's value is shown underneath when the setting differs from it.
+ * Minutes from orange to purple: presets, and a field for anything else,
+ * sent when the field is left or Enter is pressed.
  */
-const SettingField = ({
-  setting,
-  field,
-  act,
-}: {
-  setting: Setting;
-  field: Field;
-  act: Act;
-}) => {
-  const shown = fmt(toUnit(setting.value, field.unit));
+const LengthField = ({ seconds, act }: { seconds: number; act: Act }) => {
+  const minutes = seconds / 60;
+  const shown = fmt(minutes);
   const [text, setText] = useState(shown);
   const [editing, setEditing] = useState(false);
   useEffect(() => {
@@ -85,6 +37,11 @@ const SettingField = ({
     }
   }, [shown, editing]);
 
+  const send = (value: number) => {
+    if (value * 60 !== seconds) {
+      act("set_leg", { seconds: value * 60 });
+    }
+  };
   const commit = () => {
     setEditing(false);
     const value = Number(text);
@@ -92,94 +49,120 @@ const SettingField = ({
       setText(shown);
       return;
     }
-    const seconds = toSeconds(value, field.unit);
-    if (seconds !== setting.value) {
-      act("set_setting", { name: setting.name, value: seconds });
-    }
+    send(value);
   };
 
-  const overridden = setting.value !== setting.default;
   return (
-    <TextField
-      size="small"
-      type="number"
-      label={field.label}
-      value={text}
-      onFocus={() => setEditing(true)}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
-      helperText={
-        overridden ? `config: ${fmt(toUnit(setting.default, field.unit))}` : " "
-      }
-      slotProps={{
-        input: {
-          endAdornment: (
-            <InputAdornment position="end">{field.unit}</InputAdornment>
-          ),
-        },
-        htmlInput: { min: 0, step: field.unit === "min" ? 0.5 : 5 },
-      }}
-      sx={{ width: "11em" }}
-    />
+    <Stack
+      direction="row"
+      spacing={2}
+      useFlexGap
+      sx={{ alignItems: "center", flexWrap: "wrap" }}
+    >
+      <TextField
+        size="small"
+        type="number"
+        label="orange to purple"
+        value={text}
+        onFocus={() => setEditing(true)}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        slotProps={{
+          input: {
+            endAdornment: <InputAdornment position="end">min</InputAdornment>,
+          },
+          htmlInput: { min: 0, step: 1, inputMode: "decimal" },
+        }}
+        sx={{ width: "11em" }}
+      />
+      <ToggleButtonGroup
+        size="small"
+        exclusive
+        value={minutes}
+        onChange={(_, value: number | null) => {
+          if (value !== null) {
+            send(value);
+          }
+        }}
+      >
+        {PRESETS_MIN.map((preset) => (
+          <ToggleButton key={preset} value={preset} sx={{ width: 44 }}>
+            {preset}
+          </ToggleButton>
+        ))}
+      </ToggleButtonGroup>
+    </Stack>
   );
 };
 
 /**
- * The timing settings: how often discrete sounds and lightning come. Values
- * apply at once and persist on the Pi; reset to defaults (on the programs
- * card) puts the config file's values back.
+ * What persists on the Pi: the sunset's length and the two brightness levels.
+ * Below, the setup check, debug logging, and a way back to the config file.
  */
-const SettingsCard = ({
-  settings,
-  act,
-}: {
-  settings: Setting[] | undefined;
-  act: Act;
-}) => {
-  const groups = Array.from(new Set(Object.values(FIELDS).map((f) => f.group)));
-  return (
-    <Card>
-      <CardContent>
-        <Typography variant="overline" color="text.secondary">
-          timing
-        </Typography>
-        <Stack spacing={2} sx={{ mt: 1 }}>
-          {groups.map((group) => (
-            <Stack key={group} spacing={1}>
-              <Typography variant="caption" color="text.secondary">
-                {group}
-              </Typography>
-              <Stack
-                direction="row"
-                spacing={2}
-                useFlexGap
-                sx={{ flexWrap: "wrap" }}
-              >
-                {(settings ?? [])
-                  .filter((s) => FIELDS[s.name]?.group === group)
-                  .map((s) => (
-                    <SettingField
-                      key={s.name}
-                      setting={s}
-                      field={FIELDS[s.name]}
-                      act={act}
-                    />
-                  ))}
-              </Stack>
-              <Typography variant="caption" color="text.secondary">
-                {HINTS[group]}
-              </Typography>
-            </Stack>
-          ))}
+const SettingsCard = ({ status, act }: { status: Status | null; act: Act }) => (
+  <Card>
+    <CardContent>
+      <Typography variant="overline" color="text.secondary">
+        settings
+      </Typography>
+      {!status && <Skeleton height={120} />}
+      {status && (
+        <Stack spacing={2} sx={{ mt: 1.5 }}>
+          <LengthField seconds={status.leg_s} act={act} />
+          <Stack spacing={0.5}>
+            <LevelSlider
+              label="brightness"
+              value={status.peak}
+              onSend={(value) => act("set_peak", { value })}
+            />
+            <LevelSlider
+              label="purple end"
+              value={status.dusk_level}
+              min={0.05}
+              onSend={(value) => act("set_dusk_level", { value })}
+            />
+          </Stack>
+          <Stack>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  color="secondary"
+                  checked={status.check}
+                  onChange={(_, on) => act("set_check", { on })}
+                />
+              }
+              label={<Typography variant="body2">setup check</Typography>}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={status.debug}
+                  onChange={(_, debug) => act("set_debug", { debug })}
+                />
+              }
+              label={<Typography variant="body2">debug logging</Typography>}
+            />
+          </Stack>
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            sx={{ alignSelf: "flex-start" }}
+            onClick={() => act("reset_defaults")}
+          >
+            reset to defaults
+          </Button>
         </Stack>
-      </CardContent>
-    </Card>
-  );
-};
+      )}
+    </CardContent>
+  </Card>
+);
 
 export default SettingsCard;
